@@ -28,6 +28,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    defaults:
+      run:
+        working-directory: RUX View
+
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +76,9 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RUX View
     steps:
       - uses: actions/checkout@v4
 
