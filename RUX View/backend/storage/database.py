@@ -23,16 +23,39 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    TypeDecorator,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 
 class Base(DeclarativeBase):
     """Declarative base for all Vision OS models."""
+
     pass
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+
+    Uses PostgreSQL UUID on Postgres and String on SQLite / other dialects.
+    """
+
+    impl = String(36)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=False))
+        return dialect.type_descriptor(String(36))
+
+    def process_bind_param(self, value, dialect):
+        return value
+
+    def process_result_value(self, value, dialect):
+        return value
 
 
 # ── Events ────────────────────────────────────────────────────
@@ -44,8 +67,8 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    location_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    location_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     camera_id: Mapped[str] = mapped_column(String(100), nullable=False)
     incident_id: Mapped[str] = mapped_column(String(100), nullable=False)
     timestamp_start: Mapped[datetime] = mapped_column(
@@ -83,8 +106,8 @@ class Person(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     person_uid: Mapped[str] = mapped_column(String(20), nullable=False)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    location_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    location_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     first_seen: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -116,7 +139,7 @@ class PersonSighting(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     person_uid: Mapped[str] = mapped_column(String(20), nullable=False)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     event_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("events.id"), nullable=True
     )
@@ -148,10 +171,8 @@ class SceneState(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     camera_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     gates_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     doors_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     vehicles_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -173,7 +194,7 @@ class AudioEvent(Base):
         Integer, ForeignKey("events.id"), nullable=True
     )
     camera_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     timestamp: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -199,20 +220,20 @@ class ShopAnalytic(Base):
 
     __tablename__ = "shop_analytics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    camera_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    hour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    customer_count: Mapped[int] = mapped_column(Integer, default=0)
-    male_count: Mapped[int] = mapped_column(Integer, default=0)
-    female_count: Mapped[int] = mapped_column(Integer, default=0)
-    unknown_gender: Mapped[int] = mapped_column(Integer, default=0)
-    age_teens: Mapped[int] = mapped_column(Integer, default=0)
-    age_20s: Mapped[int] = mapped_column(Integer, default=0)
-    age_30s: Mapped[int] = mapped_column(Integer, default=0)
-    age_40s: Mapped[int] = mapped_column(Integer, default=0)
-    age_50plus: Mapped[int] = mapped_column(Integer, default=0)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    camera_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    hour: Mapped[int] = mapped_column(Integer, nullable=False)
+    customer_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    male_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    female_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    unknown_gender: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    age_teens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    age_20s: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    age_30s: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    age_40s: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    age_50plus: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     avg_dwell_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
@@ -220,6 +241,13 @@ class ShopAnalytic(Base):
             "camera_id", "date", "hour", name="uq_shop_analytics_camera_date_hour"
         ),
     )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ShopAnalytic id={self.id} camera_id={self.camera_id!r} "
+            f"date={self.date} hour={self.hour} "
+            f"customers={self.customer_count}>"
+        )
 
 
 # ── Cameras ───────────────────────────────────────────────────
@@ -231,8 +259,8 @@ class Camera(Base):
     __tablename__ = "cameras"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    location_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    location_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -241,12 +269,8 @@ class Camera(Base):
     ignore_zones_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     shop_hours_open: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     shop_hours_close: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
-    night_hours_start: Mapped[Optional[time]] = mapped_column(
-        Time, default=time(22, 0)
-    )
-    night_hours_end: Mapped[Optional[time]] = mapped_column(
-        Time, default=time(6, 0)
-    )
+    night_hours_start: Mapped[Optional[time]] = mapped_column(Time, default=time(22, 0))
+    night_hours_end: Mapped[Optional[time]] = mapped_column(Time, default=time(6, 0))
     loiter_config_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -262,11 +286,11 @@ class Location(Base):
     __tablename__ = "locations"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False),
+        GUID(),
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     camera_topology: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -284,7 +308,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False),
+        GUID(),
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
     )
@@ -308,9 +332,7 @@ class User(Base):
     bkash_subscriber_id: Mapped[Optional[str]] = mapped_column(
         String(200), nullable=True
     )
-    secondary_contact: Mapped[Optional[str]] = mapped_column(
-        String(50), nullable=True
-    )
+    secondary_contact: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

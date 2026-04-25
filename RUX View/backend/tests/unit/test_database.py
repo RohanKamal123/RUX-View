@@ -6,10 +6,10 @@ an in-memory SQLite backend (replacing asyncpg for test speed).
 """
 
 import pytest
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 from typing import AsyncGenerator
 
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -20,13 +20,6 @@ from backend.storage.database import (
     AudioEvent,
     Base,
     Camera,
-    Event,
-    Location,
-    Person,
-    PersonSighting,
-    SceneState,
-    ShopAnalytic,
-    User,
 )
 from backend.storage.crud import (
     create_event,
@@ -56,7 +49,6 @@ from backend.storage.crud import (
     update_user_tier,
     get_user_by_firebase_uid,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────
 
@@ -126,9 +118,11 @@ async def test_create_all_tables(db_session: AsyncSession):
     from sqlalchemy import inspect
 
     conn = await db_session.connection()
+
     def _inspect(connection):
         inspector = inspect(connection)
         return inspector.get_table_names()
+
     tables = await conn.run_sync(_inspect)
 
     expected_tables = {
@@ -180,17 +174,13 @@ async def test_get_events_with_filters(
     await create_event(db_session, event2_data)
 
     # Filter by threat_level
-    results = await get_events(
-        db_session, sample_user_id, {"threat_level": "HIGH"}
-    )
+    results = await get_events(db_session, sample_user_id, {"threat_level": "HIGH"})
     assert len(results) == 1
     assert results[0].incident_id == "INC_002"
 
 
 @pytest.mark.asyncio
-async def test_update_event(
-    db_session: AsyncSession, sample_event_data
-):
+async def test_update_event(db_session: AsyncSession, sample_event_data):
     """Test updating an event's fields."""
     event = await create_event(db_session, sample_event_data)
     updated = await update_event(
@@ -315,9 +305,7 @@ async def test_update_person_sighting(
 
 
 @pytest.mark.asyncio
-async def test_insert_sighting(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_insert_sighting(db_session: AsyncSession, sample_user_id):
     """Test creating a person sighting."""
     sighting = await create_sighting(
         db_session,
@@ -337,9 +325,7 @@ async def test_insert_sighting(
 
 
 @pytest.mark.asyncio
-async def test_get_person_sightings(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_get_person_sightings(db_session: AsyncSession, sample_user_id):
     """Test retrieving sightings for a person ordered by time desc."""
     for i in range(3):
         await create_sighting(
@@ -355,6 +341,7 @@ async def test_get_person_sightings(
     sightings = await get_person_sightings(db_session, "PERSON_001", sample_user_id)
     assert len(sightings) == 3
     # Should be newest first
+    assert sightings[0].timestamp is not None
     assert sightings[0].timestamp.hour == 12
 
 
@@ -407,9 +394,7 @@ async def test_get_latest_scene_state(
 
 
 @pytest.mark.asyncio
-async def test_insert_audio_event(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_insert_audio_event(db_session: AsyncSession, sample_user_id):
     """Test creating an audio event."""
     audio = await create_audio_event(
         db_session,
@@ -430,9 +415,7 @@ async def test_insert_audio_event(
 
 
 @pytest.mark.asyncio
-async def test_get_expired_transcripts(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_get_expired_transcripts(db_session: AsyncSession, sample_user_id):
     """Test retrieving expired audio transcripts."""
     # Create an expired transcript
     await create_audio_event(
@@ -463,9 +446,7 @@ async def test_get_expired_transcripts(
 
 
 @pytest.mark.asyncio
-async def test_delete_audio_event(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_delete_audio_event(db_session: AsyncSession, sample_user_id):
     """Test deleting an audio event."""
     audio = await create_audio_event(
         db_session,
@@ -556,9 +537,7 @@ async def test_get_shop_analytics(
             },
         )
 
-    results = await get_shop_analytics(
-        db_session, sample_camera_id, date(2026, 4, 25)
-    )
+    results = await get_shop_analytics(db_session, sample_camera_id, date(2026, 4, 25))
     assert len(results) == 10
     assert results[0].hour == 8
     assert results[-1].hour == 17
@@ -659,9 +638,7 @@ async def test_delete_camera(
 
 
 @pytest.mark.asyncio
-async def test_insert_location(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_insert_location(db_session: AsyncSession, sample_user_id):
     """Test creating a location."""
     location = await create_location(
         db_session,
@@ -677,9 +654,7 @@ async def test_insert_location(
 
 
 @pytest.mark.asyncio
-async def test_get_user_locations(
-    db_session: AsyncSession, sample_user_id
-):
+async def test_get_user_locations(db_session: AsyncSession, sample_user_id):
     """Test retrieving all locations for a user."""
     for name in ["Office", "Warehouse", "Parking"]:
         await create_location(
@@ -703,9 +678,7 @@ async def test_get_user_locations(
 async def test_user_tier_query(db_session: AsyncSession):
     """Test user tier operations."""
     # Create user
-    user = await get_or_create_user(
-        db_session, "firebase-uid-123", "test@example.com"
-    )
+    user = await get_or_create_user(db_session, "firebase-uid-123", "test@example.com")
     assert user.id is not None
     assert user.tier == "free"
     assert user.email == "test@example.com"

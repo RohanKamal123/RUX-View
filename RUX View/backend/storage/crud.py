@@ -6,16 +6,14 @@ Includes pgvector similarity search for person embeddings.
 """
 
 from datetime import date, datetime, timezone
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator
 
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import and_, delete, desc, func, select, text, update
+from sqlalchemy import and_, delete, desc, select, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import joinedload
 
 from backend.storage.database import (
     AudioEvent,
@@ -52,7 +50,9 @@ async def init_db(database_url: str | None = None) -> None:
             "postgresql+asyncpg://postgres:postgres@localhost:5432/visionos",
         )
 
-    _engine = create_async_engine(database_url, echo=False, pool_size=10, max_overflow=20)
+    _engine = create_async_engine(
+        database_url, echo=False, pool_size=10, max_overflow=20
+    )
     _session_factory = async_sessionmaker(
         _engine, class_=AsyncSession, expire_on_commit=False
     )
@@ -132,9 +132,7 @@ async def get_events(
 
 async def update_event(db: AsyncSession, event_id: int, updates: dict) -> Event:
     """Update an event and return the updated record."""
-    await db.execute(
-        update(Event).where(Event.id == event_id).values(**updates)
-    )
+    await db.execute(update(Event).where(Event.id == event_id).values(**updates))
     await db.flush()
     result = await db.execute(select(Event).where(Event.id == event_id))
     event = result.scalar_one()
@@ -154,9 +152,7 @@ async def create_person(db: AsyncSession, person_data: dict) -> Person:
     return person
 
 
-async def get_person(
-    db: AsyncSession, person_uid: str, user_id: str
-) -> Person | None:
+async def get_person(db: AsyncSession, person_uid: str, user_id: str) -> Person | None:
     """Get a person by UID and user."""
     result = await db.execute(
         select(Person).where(
@@ -183,9 +179,7 @@ async def find_similar_persons(
     Returns:
         List of dicts with person data and similarity score.
     """
-    embedding_vec = Vector(embedding)
-    stmt = text(
-        """
+    stmt = text("""
         SELECT id, person_uid, user_id, location_id, first_seen, last_seen,
                sighting_count, threat_flags, is_staff, user_label,
                1 - (embedding <=> :embedding) AS similarity
@@ -194,8 +188,7 @@ async def find_similar_persons(
           AND embedding IS NOT NULL
         ORDER BY embedding <=> :embedding
         LIMIT :limit
-        """
-    )
+        """)
     result = await db.execute(
         stmt,
         {
@@ -227,9 +220,7 @@ async def update_person_sighting(
 # ── Person Sightings ──────────────────────────────────────────
 
 
-async def create_sighting(
-    db: AsyncSession, sighting_data: dict
-) -> PersonSighting:
+async def create_sighting(db: AsyncSession, sighting_data: dict) -> PersonSighting:
     """Create a new person sighting record."""
     sighting = PersonSighting(**sighting_data)
     db.add(sighting)
@@ -258,9 +249,7 @@ async def get_person_sightings(
 # ── Scene States ──────────────────────────────────────────────
 
 
-async def save_scene_state(
-    db: AsyncSession, state_data: dict
-) -> SceneState:
+async def save_scene_state(db: AsyncSession, state_data: dict) -> SceneState:
     """Save a new scene state snapshot."""
     state = SceneState(**state_data)
     db.add(state)
@@ -269,9 +258,7 @@ async def save_scene_state(
     return state
 
 
-async def get_latest_scene_state(
-    db: AsyncSession, camera_id: str
-) -> SceneState | None:
+async def get_latest_scene_state(db: AsyncSession, camera_id: str) -> SceneState | None:
     """Get the most recent scene state for a camera."""
     result = await db.execute(
         select(SceneState)
@@ -285,9 +272,7 @@ async def get_latest_scene_state(
 # ── Audio Events ──────────────────────────────────────────────
 
 
-async def create_audio_event(
-    db: AsyncSession, audio_data: dict
-) -> AudioEvent:
+async def create_audio_event(db: AsyncSession, audio_data: dict) -> AudioEvent:
     """Create a new audio event record."""
     audio = AudioEvent(**audio_data)
     db.add(audio)
@@ -299,9 +284,7 @@ async def create_audio_event(
 async def get_expired_transcripts(db: AsyncSession) -> list[AudioEvent]:
     """Get audio events where expires_at is in the past."""
     now = datetime.now(timezone.utc)
-    result = await db.execute(
-        select(AudioEvent).where(AudioEvent.expires_at < now)
-    )
+    result = await db.execute(select(AudioEvent).where(AudioEvent.expires_at < now))
     return list(result.scalars().all())
 
 
@@ -314,9 +297,7 @@ async def delete_audio_event(db: AsyncSession, event_id: int) -> None:
 # ── Shop Analytics ────────────────────────────────────────────
 
 
-async def upsert_shop_analytics(
-    db: AsyncSession, analytics_data: dict
-) -> ShopAnalytic:
+async def upsert_shop_analytics(db: AsyncSession, analytics_data: dict) -> ShopAnalytic:
     """Insert or update shop analytics for a camera/date/hour.
 
     Uses ON CONFLICT to upsert.
@@ -327,7 +308,7 @@ async def upsert_shop_analytics(
             and_(
                 ShopAnalytic.camera_id == analytics_data["camera_id"],
                 ShopAnalytic.date == analytics_data["date"],
-                ShopAnalytic.hour == analytics_data.get("hour"),
+                ShopAnalytic.hour == analytics_data["hour"],
             )
         )
     )
@@ -377,9 +358,7 @@ async def create_camera(db: AsyncSession, camera_data: dict) -> Camera:
     return camera
 
 
-async def get_user_cameras(
-    db: AsyncSession, user_id: str
-) -> list[Camera]:
+async def get_user_cameras(db: AsyncSession, user_id: str) -> list[Camera]:
     """Get all cameras for a user."""
     result = await db.execute(
         select(Camera).where(Camera.user_id == user_id).order_by(Camera.name)
@@ -387,13 +366,9 @@ async def get_user_cameras(
     return list(result.scalars().all())
 
 
-async def update_camera(
-    db: AsyncSession, camera_id: str, updates: dict
-) -> Camera:
+async def update_camera(db: AsyncSession, camera_id: str, updates: dict) -> Camera:
     """Update camera configuration."""
-    await db.execute(
-        update(Camera).where(Camera.id == camera_id).values(**updates)
-    )
+    await db.execute(update(Camera).where(Camera.id == camera_id).values(**updates))
     await db.flush()
     result = await db.execute(select(Camera).where(Camera.id == camera_id))
     camera = result.scalar_one()
@@ -410,9 +385,7 @@ async def delete_camera(db: AsyncSession, camera_id: str) -> None:
 # ── Locations ─────────────────────────────────────────────────
 
 
-async def create_location(
-    db: AsyncSession, location_data: dict
-) -> Location:
+async def create_location(db: AsyncSession, location_data: dict) -> Location:
     """Create a new location."""
     location = Location(**location_data)
     db.add(location)
@@ -421,9 +394,7 @@ async def create_location(
     return location
 
 
-async def get_user_locations(
-    db: AsyncSession, user_id: str
-) -> list[Location]:
+async def get_user_locations(db: AsyncSession, user_id: str) -> list[Location]:
     """Get all locations for a user."""
     result = await db.execute(
         select(Location).where(Location.user_id == user_id).order_by(Location.name)
@@ -434,13 +405,9 @@ async def get_user_locations(
 # ── Users ─────────────────────────────────────────────────────
 
 
-async def get_or_create_user(
-    db: AsyncSession, firebase_uid: str, email: str
-) -> User:
+async def get_or_create_user(db: AsyncSession, firebase_uid: str, email: str) -> User:
     """Find user by Firebase UID or create a new one."""
-    result = await db.execute(
-        select(User).where(User.firebase_uid == firebase_uid)
-    )
+    result = await db.execute(select(User).where(User.firebase_uid == firebase_uid))
     user = result.scalar_one_or_none()
 
     if user is None:
@@ -452,13 +419,9 @@ async def get_or_create_user(
     return user
 
 
-async def update_user_tier(
-    db: AsyncSession, user_id: str, tier: str
-) -> User:
+async def update_user_tier(db: AsyncSession, user_id: str, tier: str) -> User:
     """Update a user's subscription tier."""
-    await db.execute(
-        update(User).where(User.id == user_id).values(tier=tier)
-    )
+    await db.execute(update(User).where(User.id == user_id).values(tier=tier))
     await db.flush()
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one()
@@ -466,11 +429,7 @@ async def update_user_tier(
     return user
 
 
-async def get_user_by_firebase_uid(
-    db: AsyncSession, firebase_uid: str
-) -> User | None:
+async def get_user_by_firebase_uid(db: AsyncSession, firebase_uid: str) -> User | None:
     """Look up a user by their Firebase authentication UID."""
-    result = await db.execute(
-        select(User).where(User.firebase_uid == firebase_uid)
-    )
+    result = await db.execute(select(User).where(User.firebase_uid == firebase_uid))
     return result.scalar_one_or_none()

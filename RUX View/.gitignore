@@ -1,0 +1,86 @@
+# Vision OS — Git Ignore
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ── Virtual Environment ─────────────────────────────────────
+venv/
+ENV/
+env/
+.venv/
+
+# ── Environment Variables ──────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Firebase ────────────────────────────────────────────────
+firebase-service-account.json
+*-firebase-adminsdk-*.json
+
+# ── Database ────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Testing ─────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# ── IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Logs ────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Temporary Files ─────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+
+# ── AI Model Weights (downloaded at runtime) ───────────────
+*.pt
+*.onnx
+*.pb
+models/
+
+# ── Snapshots (user data) ──────────────────────────────────
+snapshots/
+thumbnails/
+
+# ── Client Agent Build (Phase 2) ───────────────────────────
+connect/build/
+connect/dist/
+*.exe
+
+# ── Google Cloud ────────────────────────────────────────────
+.gcloud/
