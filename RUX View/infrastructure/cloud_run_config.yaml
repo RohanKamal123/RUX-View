@@ -1,0 +1,106 @@
+# Vision OS — Cloud Run Configuration
+# Auto-scaling setup for AI-powered CCTV intelligence platform
+# Region: asia-south1 (Mumbai) — low latency for Bangladesh
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: vision-os-api
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/launch-stage: stable
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/target: "80"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/startup-cpu-boost: "true"
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/client-name: "vision-os"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      serviceAccountName: vision-os-api-sa
+      # VPC connector for secure Cloud SQL access via private IP
+      vpcAccess:
+        connector: vision-os-vpc-connector
+        egress: private-ranges-only
+      volumes:
+        - name: cloud-sql-proxy
+          emptyDir:
+            sizeLimit: 1Gi
+      containers:
+        - image: gcr.io/vision-os/vision-os-api:latest
+          ports:
+            - containerPort: 8080
+          env:
+            # Database
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cloud-sql-credentials
+                  key: database_url
+            # Application secrets
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-secrets
+                  key: secret_key
+            # AI services
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-service-keys
+                  key: groq_api_key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-service-keys
+                  key: openai_api_key
+            # Notification services
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: notification-keys
+                  key: telegram_bot_token
+            - name: SMS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notification-keys
+                  key: sms_api_key
+            # Storage & region
+            - name: STORAGE_BUCKET
+              value: vision-os-clips
+            - name: REGION
+              value: asia-south1
+            - name: VISION_OS_ENV
+              value: production
+          resources:
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          # Startup probe — generous timeout for cold starts with AI models
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 10
+          # Liveness probe — ensure the service is responsive
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: cloud-sql-proxy
+              mountPath: /cloudsql

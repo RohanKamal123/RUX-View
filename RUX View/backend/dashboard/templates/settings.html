@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Settings</h2>
+</div>
+
+<div class="settings-section">
+  <h3 class="section-title">Cameras</h3>
+  <div class="camera-list">
+    {% for cam in cameras %}
+    <div class="camera-item">
+      <div class="camera-item-info">
+        <span class="camera-item-name">{{ cam.name }}</span>
+        <span class="mode-badge mode-{{ cam.mode }}">{{ cam.mode }}</span>
+        <span class="status-badge status-{{ cam.status }}">{{ cam.status }}</span>
+      </div>
+      <div class="camera-item-actions">
+        <button class="btn btn-sm btn-outline" onclick="editCamera('{{ cam.id }}')">Edit</button>
+        <button class="btn btn-sm btn-outline" onclick="configureZones('{{ cam.id }}')">Zones</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <button class="btn btn-primary" onclick="addCamera()">+ Add Camera</button>
+</div>
+
+<div class="settings-section">
+  <h3 class="section-title">Ignore Zones</h3>
+  <p class="settings-description">Configure areas to ignore for motion detection. Draw zones on the camera preview.</p>
+  <div class="ignore-zones-placeholder">
+    <div class="empty-state">
+      <div class="empty-state-icon">&#x1F3F0;</div>
+      <p>Ignore zones editor coming soon.</p>
+      <p>Select a camera to configure its ignore zones.</p>
+    </div>
+  </div>
+</div>
+
+<div class="settings-section">
+  <h3 class="section-title">Account</h3>
+  <div class="account-settings">
+    <div class="form-group">
+      <label for="account-name">Display Name</label>
+      <input type="text" id="account-name" class="form-input" value="{{ user.name }}" placeholder="Your name">
+    </div>
+    <div class="form-group">
+      <label for="account-email">Email</label>
+      <input type="email" id="account-email" class="form-input" value="{{ user.email }}" placeholder="Your email" disabled>
+    </div>
+    <div class="form-group">
+      <label for="account-tier">Current Tier</label>
+      <input type="text" id="account-tier" class="form-input" value="{{ user.tier }}" disabled>
+    </div>
+    <button class="btn btn-primary" onclick="saveAccountSettings()">Save Changes</button>
+  </div>
+</div>
+{% endblock %}

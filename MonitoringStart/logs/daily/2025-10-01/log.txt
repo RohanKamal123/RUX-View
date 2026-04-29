@@ -1,1 +1,0 @@
-[2025-10-01 02:13:06] | Screenshot: 'screenshots\screenshot_20251001_021305_001.jpg' | Reason: first_frame

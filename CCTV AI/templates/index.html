@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>CCTV Visitor Log</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #1e293b;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #334155;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header h1 {
+            font-size: 20px;
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* FIX: <a> as button needs display:inline-flex and no underline */
+        .btn, .lang-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            text-decoration: none;
+            background: #334155;
+            color: #94a3b8;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .btn { background: #38bdf8; color: #0f172a; }
+        .btn:hover { background: #7dd3fc; }
+        .btn-ghost { background: #334155; color: #94a3b8; }
+        .btn-ghost:hover { background: #475569; color: #e2e8f0; }
+        .lang-btn.active { background: #38bdf8; color: #0f172a; }
+        .lang-btn:hover:not(.active) { background: #475569; color: #e2e8f0; }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 16px;
+            padding: 24px;
+        }
+
+        .stat-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 26px;
+            font-weight: 700;
+            color: #38bdf8;
+        }
+
+        .stat-card .value.orange { color: #f97316; }
+        .stat-card .value.green  { color: #4ade80; }
+
+        /* Active banner */
+        .active-banner {
+            margin: 0 24px 16px;
+            background: #14532d;
+            border: 1px solid #4ade80;
+            border-radius: 10px;
+            padding: 12px 18px;
+            color: #4ade80;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.7; }
+        }
+
+        /* Sessions */
+        .section-title {
+            padding: 0 24px 12px;
+            font-size: 13px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .sessions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 0 24px 24px;
+        }
+
+        .session-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .session-card.active-card { border-color: #4ade80; }
+
+        .session-thumb {
+            width: 120px;
+            min-width: 120px;
+            background: #0f172a;
+            object-fit: cover;
+            cursor: pointer;
+            display: block; /* FIX: prevents inline image gap */
+        }
+
+        /* FIX: placeholder always present in DOM, hidden by default */
+        .session-thumb-placeholder {
+            width: 120px;
+            min-width: 120px;
+            background: #0f172a;
+            display: none; /* shown via JS onerror or when no path */
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            color: #334155;
+        }
+
+        .session-thumb-placeholder.visible {
+            display: flex;
+        }
+
+        .session-body {
+            padding: 16px;
+            flex: 1;
+            min-width: 0; /* FIX: prevents flex overflow on narrow screens */
+        }
+
+        .session-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .session-id { font-size: 13px; color: #64748b; }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-active {
+            background: #14532d;
+            color: #4ade80;
+            border: 1px solid #4ade80;
+        }
+
+        .badge-closed {
+            background: #1e293b;
+            color: #64748b;
+            border: 1px solid #334155;
+        }
+
+        .name-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #1e3a5f;
+            color: #38bdf8;
+            border: 1px solid #38bdf840;
+            border-radius: 20px;
+            padding: 3px 12px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap; /* FIX: wrap on small screens */
+        }
+
+        .name-input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: #e2e8f0;
+            padding: 6px 10px;
+            font-size: 13px;
+            width: 160px;
+            outline: none;
+        }
+
+        .name-input:focus { border-color: #38bdf8; }
+
+        /* FIX: keyboard focus style added */
+        .name-save-btn {
+            background: #334155;
+            color: #94a3b8;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .name-save-btn:hover,
+        .name-save-btn:focus-visible {
+            background: #38bdf8;
+            color: #0f172a;
+            outline: none;
+        }
+
+        .session-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .meta-item { font-size: 13px; }
+
+        .meta-item .meta-label {
+            color: #64748b;
+            margin-bottom: 2px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .meta-item .meta-value { color: #e2e8f0; font-weight: 600; }
+
+        .people-count {
+            font-size: 22px;
+            font-weight: 700;
+            color: #f97316;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 80px 24px;
+            color: #334155;
+        }
+
+        .empty .icon { font-size: 48px; margin-bottom: 16px; }
+
+        /* FIX: toast notification for save feedback */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 13px;
+            color: #e2e8f0;
+            z-index: 200;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success { border-color: #4ade80; color: #4ade80; }
+        .toast.error   { border-color: #f87171; color: #f87171; }
+
+        /* Modal — FIX: use position:fixed but handled carefully */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open { display: flex; }
+
+        .modal-img {
+            max-width: 92vw;
+            max-height: 85vh;
+            border-radius: 12px;
+            box-shadow: 0 0 60px rgba(0,0,0,0.8);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 24px;
+            font-size: 32px;
+            color: #fff;
+            cursor: pointer;
+            line-height: 1;
+            z-index: 101;
+            background: none;
+            border: none;
+            padding: 4px 8px;
+        }
+
+        @media (max-width: 480px) {
+            .session-thumb, .session-thumb-placeholder { width: 80px; min-width: 80px; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        /* ── Step 3: Star button & filter bar ── */
+        .star-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+            transition: transform 0.15s;
+        }
+
+        .star-btn:hover { transform: scale(1.2); }
+
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            padding: 0 24px 16px;
+        }
+
+        .filter-btn {
+            padding: 7px 16px;
+            border-radius: 20px;
+            border: 1px solid #334155;
+            background: #1e293b;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .filter-btn.active {
+            background: #38bdf8;
+            color: #0f172a;
+            border-color: #38bdf8;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>📷 <span id="title-text">Visitor Log</span></h1>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <a class="btn btn-ghost" href="/persons">👤 People</a>
+        <button class="lang-btn active" onclick="setLang('en')" id="btn-en">EN</button>
+        <button class="lang-btn" onclick="setLang('bn')" id="btn-bn">বাং</button>
+        <a class="btn" href="/">↻ Refresh</a>
+        <a class="btn btn-ghost" href="/logout">Logout</a>
+    </div>
+</header>
+
+<!-- Stats -->
+<div class="stats">
+    <div class="stat-card">
+        <div class="label"><span class="t" data-en="Total Visits" data-bn="মোট ভিজিট">Total Visits</span></div>
+        <div class="value">{{ stats.total }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label"><span class="t" data-en="Active Now" data-bn="এখন সক্রিয়">Active Now</span></div>
+        <div class="value green">{{ stats.active }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label"><span class="t" data-en="Avg Duration" data-bn="গড় সময়">Avg Duration</span></div>
+        <div class="value orange">{{ stats.avg_duration }}s</div>
+    </div>
+    <div class="stat-card">
+        <div class="label"><span class="t" data-en="Most People" data-bn="সর্বোচ্চ মানুষ">Most People</span></div>
+        <div class="value">{{ stats.max_people }}</div>
+    </div>
+</div>
+
+<!-- Active banner -->
+{% if stats.active > 0 %}
+<div class="active-banner">
+    🟢 <span class="t" data-en="Someone is at your door right now!" data-bn="এখন আপনার দরজায় কেউ আছে!">Someone is at your door right now!</span>
+</div>
+{% endif %}
+
+<!-- Filter bar -->
+<div class="filter-bar">
+    <a class="filter-btn {% if active_filter == 'all' %}active{% endif %}"
+       href="/">
+        All Visits
+    </a>
+    <a class="filter-btn {% if active_filter == 'starred' %}active{% endif %}"
+       href="/?filter=starred">
+        ⭐ Starred
+    </a>
+</div>
+
+<!-- Sessions -->
+{% if sessions %}
+<div class="section-title">
+    <span class="t" data-en="Recent Visits" data-bn="সাম্প্রতিক ভিজিট">Recent Visits</span>
+</div>
+<div class="sessions">
+    {% for s in sessions %}
+    <div class="session-card {% if s.status == 'active' %}active-card{% endif %}">
+
+        {#
+          FIX: Both image and placeholder are always in the DOM.
+          The image's onerror hides itself and shows the sibling placeholder
+          via its ID, removing the fragile nextElementSibling assumption.
+          Snapshot path is cleaned server-side; the filter here is a fallback only.
+        #}
+        {% if s.snapshot_path %}
+            <img class="session-thumb"
+                 src="/snapshots/{{ s.snapshot_path | replace('snapshots\\', '') | replace('snapshots/', '') }}"
+                 alt="Visitor snapshot for visit {{ s.id }}"
+                 onclick="openModal(this.src)"
+                 onerror="this.style.display='none'; document.getElementById('ph-{{ s.id }}').classList.add('visible');"/>
+            <div class="session-thumb-placeholder" id="ph-{{ s.id }}">📷</div>
+        {% else %}
+            <div class="session-thumb-placeholder visible" id="ph-{{ s.id }}">📷</div>
+        {% endif %}
+
+        <div class="session-body">
+            <div class="session-header">
+                <span class="session-id">Visit #{{ s.id }}</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button class="star-btn"
+                            id="star-{{ s.id }}"
+                            onclick="toggleStar('{{ s.id }}')"
+                            title="Star this visit">
+                        {{ '⭐' if s.starred else '☆' }}
+                    </button>
+                    <span class="badge {% if s.status == 'active' %}badge-active{% else %}badge-closed{% endif %}">
+                        {% if s.status == 'active' %}● Active{% else %}✓ Completed{% endif %}
+                    </span>
+                </div>
+            </div>
+
+            <div style="margin-bottom:10px;">
+                <span class="people-count">{{ s.peak_count }}</span>
+                <span style="color:#94a3b8; font-size:13px;">
+                    <span class="t" data-en="person(s) detected" data-bn="জন সনাক্ত হয়েছে">person(s) detected</span>
+                </span>
+            </div>
+
+            <!-- Known visitor name -->
+            {% if s.id in names %}
+            <div style="margin-bottom:10px;">
+                <span class="name-tag">
+                    👤 {{ names[s.id] }}
+                    <span onclick="clearName('{{ s.id }}')"
+                          style="cursor:pointer; color:#64748b; font-size:11px;"
+                          role="button"
+                          aria-label="Remove label">✕</span>
+                </span>
+            </div>
+            {% endif %}
+
+            <div class="session-meta">
+                <div class="meta-item">
+                    <div class="meta-label"><span class="t" data-en="ARRIVED" data-bn="এসেছে">ARRIVED</span></div>
+                    <div class="meta-value">{{ s.start_time }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label"><span class="t" data-en="LEFT" data-bn="গেছে">LEFT</span></div>
+                    <div class="meta-value">
+                        {% if s.status == 'active' %}
+                            <span class="t" data-en="Still here" data-bn="এখনও আছে">Still here</span>
+                        {% else %}
+                            {{ s.end_time }}
+                        {% endif %}
+                    </div>
+                </div>
+                {% if s.duration_seconds %}
+                <div class="meta-item">
+                    <div class="meta-label"><span class="t" data-en="DURATION" data-bn="সময়কাল">DURATION</span></div>
+                    <div class="meta-value">
+                        {% if s.duration_seconds >= 60 %}
+                            {{ (s.duration_seconds // 60) }}m {{ (s.duration_seconds % 60) }}s
+                        {% else %}
+                            {{ s.duration_seconds }}s
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- FIX: autocomplete="off" prevents browser autofill pollution -->
+            <div class="name-row">
+                <input class="name-input"
+                       id="name-{{ s.id }}"
+                       type="text"
+                       autocomplete="off"
+                       placeholder="Label this visitor..."
+                       value="{{ names[s.id] if s.id in names else '' }}"
+                       onkeydown="if(event.key==='Enter') saveName('{{ s.id }}')"/>
+                <button class="name-save-btn" onclick="saveName('{{ s.id }}')">
+                    <span class="t" data-en="Save" data-bn="সংরক্ষণ">Save</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="empty">
+    <div class="icon">👁️</div>
+    <p>
+        <span class="t"
+              data-en="No visits recorded yet. Start main.py and walk in front of the camera."
+              data-bn="এখনও কোনো ভিজিট রেকর্ড হয়নি। main.py চালু করুন এবং ক্যামেরার সামনে হাঁটুন।">
+            No visits recorded yet. Start <code>main.py</code> and walk in front of the camera.
+        </span>
+    </p>
+</div>
+{% endif %}
+
+<!-- Snapshot Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModal()">
+    <button class="modal-close" onclick="closeModal()" aria-label="Close">✕</button>
+    <img class="modal-img" id="modal-img" src="" alt="Visitor snapshot enlarged"
+         onclick="event.stopPropagation()"/>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<script>
+    /* ── Modal ── */
+    function openModal(src) {
+        document.getElementById('modal-img').src = src;
+        document.getElementById('modal').classList.add('open');
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.remove('open');
+        document.getElementById('modal-img').src = '';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    /* ── Toast ── */
+    let toastTimer;
+    function showToast(msg, type = 'success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast ' + type + ' show';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { t.classList.remove('show'); }, 2500);
+    }
+
+    /* ── Language Switcher ── */
+    function setLang(lang) {
+        document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+        document.getElementById('btn-bn').classList.toggle('active', lang === 'bn');
+        document.getElementById('title-text').textContent =
+            lang === 'bn' ? 'ভিজিটর লগ' : 'Visitor Log';
+        document.querySelectorAll('.t').forEach(el => {
+            el.textContent = el.dataset[lang] || el.dataset.en;
+        });
+        localStorage.setItem('lang', lang);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        setLang(localStorage.getItem('lang') || 'en');
+    });
+
+    /* ── Name Save / Clear ──
+       FIX: proper error handling; page only reloads on success.
+       FIX: uses JSON body instead of FormData for FastAPI compatibility.
+    */
+    async function saveName(sessionId) {
+        const input = document.getElementById('name-' + sessionId);
+        const name = input.value.trim();
+        try {
+            const res = await fetch('/api/name/' + sessionId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+            showToast('Label saved ✓', 'success');
+            setTimeout(() => location.reload(), 600);
+        } catch (err) {
+            console.error('Save failed:', err);
+            showToast('Failed to save label', 'error');
+        }
+    }
+
+    async function clearName(sessionId) {
+        try {
+            const res = await fetch('/api/name/' + sessionId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: '' })
+            });
+            if (!res.ok) throw new Error('Server returned ' + res.status);
+            setTimeout(() => location.reload(), 200);
+        } catch (err) {
+            console.error('Clear failed:', err);
+            showToast('Failed to remove label', 'error');
+        }
+    }
+
+    /* ── Star Toggle ── */
+    async function toggleStar(sessionId) {
+        const btn = document.getElementById('star-' + sessionId);
+        const res  = await fetch('/api/star/' + sessionId, { method: 'POST' });
+        const data = await res.json();
+        btn.textContent = data.starred ? '⭐' : '☆';
+    }
+</script>
+
+</body>
+</html>

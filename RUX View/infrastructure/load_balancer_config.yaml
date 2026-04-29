@@ -1,0 +1,183 @@
+# Vision OS Load Balancer Configuration
+# Generated for Sprint 10.2 - Load Balancer Setup
+# Google Cloud Global HTTPS Load Balancer
+
+name: vision-os-load-balancer
+project: vision-os-project
+region: asia-south1
+
+loadBalancer:
+  type: global_https
+  domain: visionos.app
+  ssl:
+    name: vision-os-ssl-cert
+    managed:
+      domains:
+        - visionos.app
+      state: PROVISIONING
+    type: MANAGED
+    scope: global
+
+  urlMap:
+    name: vision-os-url-map
+    defaultService: vision-os-backend
+    hostRules:
+      - hosts:
+          - visionos.app
+        pathMatcher: vision-os-path-matcher
+    pathMatchers:
+      - name: vision-os-path-matcher
+        defaultService: vision-os-backend
+        pathRules:
+          # API routes → Cloud Run backend
+          - paths:
+              - /api/*
+            service: vision-os-backend
+            routeAction:
+              corsPolicy:
+                allowOrigins:
+                  - https://visionos.app
+                allowMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - DELETE
+                  - PATCH
+                allowHeaders:
+                  - Content-Type
+                  - Authorization
+                  - X-Requested-With
+                maxAge: 3600
+                allowCredentials: true
+
+          # Static assets → Cloud Storage bucket with CDN
+          - paths:
+              - /static/*
+            service: vision-os-static
+            routeAction:
+              cdnPolicy:
+                enabled: true
+                cacheMode: CACHE_ALL_STATIC
+                defaultTtl: 3600
+                maxTtl: 86400
+                clientTtl: 3600
+                negativeCaching: true
+
+          # Health check endpoint (no auth required)
+          - paths:
+              - /health
+            service: vision-os-backend
+
+          # Login endpoint
+          - paths:
+              - /login
+            service: vision-os-backend
+
+          # Admin routes with URL rewrite
+          - paths:
+              - /admin/*
+            service: vision-os-backend
+            routeAction:
+              urlRewrite:
+                pathPrefixRewrite: /admin
+
+          # WebSocket support for real-time camera status
+          - paths:
+              - /ws/*
+            service: vision-os-backend
+            routeAction:
+              timeout: 3600s
+
+          # Catch-all rule
+          - paths:
+              - /*
+            service: vision-os-backend
+
+  backendServices:
+    - name: vision-os-backend
+      type: serverless
+      backends:
+        - group: vision-os-cloud-run
+          balancingMode: UTILIZATION
+          capacityScaler: 1.0
+      enableCDN: true
+      securityPolicy: vision-os-armor-policy
+
+    - name: vision-os-static
+      type: storage_bucket
+      backends:
+        - bucketName: vision-os-static
+      enableCDN: true
+      cdnPolicy:
+        cacheMode: CACHE_ALL_STATIC
+        defaultTtl: 3600
+        maxTtl: 86400
+
+  cloudArmor:
+    name: vision-os-armor-policy
+    type: CLOUD_ARMOR
+    description: Cloud Armor policy for Vision OS - WAF + DDoS protection
+    rules:
+      - action: throttle
+        priority: 1000
+        match:
+          expr:
+            expression: origin.ip_rate_limit() >= 1000
+        rateLimitOptions:
+          rateLimitThreshold:
+            count: 1000
+            intervalSec: 60
+          conformAction: allow
+          exceedAction: deny(429)
+          enforceOnKey: IP
+        description: "Rate limiting: 1000 requests/min per IP"
+
+      - action: deny(403)
+        priority: 2000
+        match:
+          expr:
+            expression: evaluatePreconfiguredExpr('sqli-v33-stable')
+        description: "SQL injection prevention"
+
+      - action: deny(403)
+        priority: 3000
+        match:
+          expr:
+            expression: evaluatePreconfiguredExpr('xss-v33-stable')
+        description: "Cross-site scripting prevention"
+
+      - action: deny(403)
+        priority: 4000
+        match:
+          expr:
+            expression: evaluatePreconfiguredExpr('bot-v33-stable')
+        description: "Bot detection and blocking"
+
+      - action: throttle
+        priority: 5000
+        match:
+          expr:
+            expression: evaluatePreconfiguredExpr('http-v33-stable')
+        rateLimitOptions:
+          rateLimitThreshold:
+            count: 500
+            intervalSec: 60
+          conformAction: allow
+          exceedAction: deny(429)
+          enforceOnKey: IP
+        description: "HTTP anomaly detection with rate limiting"
+
+      - action: allow
+        priority: 2147483647
+        match:
+          expr:
+            expression: "true"
+        description: "Default allow"
+
+features:
+  websocket:
+    enabled: true
+    timeout: 3600
+  ddosProtection:
+    enabled: true
+    type: cloud_armor

@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "Vision OS",
+    "tagline": "Your AI Security"
+  },
+  "nav": {
+    "events": "Events",
+    "cameras": "Cameras",
+    "settings": "Settings",
+    "payment": "Payment",
+    "admin": "Admin"
+  },
+  "events": {
+    "title": "Event Feed",
+    "no_events": "No events yet. Your cameras are quiet.",
+    "filter_all": "All Cameras",
+    "filter_threat": "All Threats",
+    "duration": "Duration: {seconds}s",
+    "persons": "Persons: {ids}",
+    "motion_detected": "Motion detected"
+  },
+  "threat": {
+    "emergency": "EMERGENCY",
+    "high": "HIGH",
+    "medium": "MEDIUM",
+    "low": "LOW"
+  },
+  "alerts": {
+    "high_threat": "VisionOS HIGH - {camera}",
+    "unknown_person": "Unknown person at {location}",
+    "motion": "Motion detected at {camera}",
+    "audio": "Sound detected: {sound_class} at {camera}",
+    "trial_ended": "Your trial has ended. Upgrade to continue.",
+    "blind_spot": "Sound detected, no visual — possible blind spot at {camera}"
+  },
+  "digest": {
+    "daily_title": "VisionOS Daily - {date}",
+    "weekly_title": "VisionOS Weekly - {week_start} to {week_end}",
+    "events": "{count} events",
+    "high_count": "{count} HIGH",
+    "visitors": "Visitors: {total} ({familiar} familiar, {unknown} unknown)",
+    "audio": "Audio: {count} alerts",
+    "all_clear": "All clear today.",
+    "gate_status": "Gate status: {status}"
+  },
+  "settings": {
+    "title": "Settings",
+    "notifications": "Notifications",
+    "language": "Language",
+    "digest_time": "Daily Digest Time",
+    "theme": "Theme",
+    "logout": "Logout",
+    "delete_account": "Delete Account"
+  },
+  "payment": {
+    "title": "Payment",
+    "instructions": "To upgrade your Vision OS subscription:",
+    "step1": "Send {price} BDT to {provider} number: {number}",
+    "step2": "Send a screenshot to {contact} via WhatsApp",
+    "step3": "Your tier will be upgraded within 24 hours",
+    "free": "Free",
+    "household": "Household",
+    "business": "Business"
+  },
+  "onboarding": {
+    "welcome": "Welcome to Vision OS",
+    "subtitle": "Your AI-powered security intelligence platform.",
+    "step1_title": "Name Your Location",
+    "step2_title": "Download Vision OS Connect",
+    "step3_title": "Connect Your Camera",
+    "all_set": "You're All Set!",
+    "get_started": "Get Started"
+  },
+  "errors": {
+    "camera_offline": "Camera {name} is offline",
+    "connection_lost": "Connection lost to {camera}",
+    "api_error": "Service temporarily unavailable",
+    "auth_expired": "Session expired. Please login again."
+  },
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "retry": "Retry",
+    "search": "Search",
+    "no_results": "No results found"
+  }
+}

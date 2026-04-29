@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<div class="admin-dashboard">
+  <div class="admin-header">
+    <h2>Admin Dashboard</h2>
+    <nav class="admin-nav">
+      <a href="/admin" class="{% if active_tab == 'overview' %}active{% endif %}">Overview</a>
+      <a href="/admin/users" class="{% if active_tab == 'users' %}active{% endif %}">Users</a>
+      <a href="/admin/errors" class="{% if active_tab == 'errors' %}active{% endif %}">Errors</a>
+      <a href="/admin/beta/invites" class="{% if active_tab == 'beta' %}active{% endif %}">Beta</a>
+      <a href="/admin/feedback" class="{% if active_tab == 'feedback' %}active{% endif %}">Feedback</a>
+    </nav>
+  </div>
+
+  {% if active_tab == 'overview' %}
+  <div class="admin-stats-grid">
+    <div class="stat-card">
+      <h3>Total Users</h3>
+      <p class="stat-number">{{ stats.total_users }}</p>
+    </div>
+    <div class="stat-card">
+      <h3>Active Cameras</h3>
+      <p class="stat-number">{{ stats.active_cameras }}</p>
+    </div>
+    <div class="stat-card">
+      <h3>Errors (24h)</h3>
+      <p class="stat-number error-count">{{ stats.errors_24h }}</p>
+    </div>
+    <div class="stat-card">
+      <h3>System Health</h3>
+      <p class="stat-status {{ stats.health_status }}">{{ stats.health_status }}</p>
+    </div>
+  </div>
+
+  <div class="admin-section">
+    <h3>Recent Signups</h3>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Tier</th>
+          <th>Cameras</th>
+          <th>Signed Up</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in recent_users %}
+        <tr>
+          <td><a href="/admin/users/{{ user.id }}">{{ user.email }}</a></td>
+          <td><span class="tier-badge tier-{{ user.tier }}">{{ user.tier }}</span></td>
+          <td>{{ user.camera_count }}</td>
+          <td>{{ user.created_at }}</td>
+          <td><span class="status-{{ user.status }}">{{ user.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% elif active_tab == 'users' %}
+  <div class="admin-section">
+    <h3>All Users</h3>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Tier</th>
+          <th>Cameras</th>
+          <th>Last Active</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td><a href="/admin/users/{{ u.id }}">{{ u.email }}</a></td>
+          <td><span class="tier-badge tier-{{ u.tier }}">{{ u.tier }}</span></td>
+          <td>{{ u.camera_count }}</td>
+          <td>{{ u.last_active }}</td>
+          <td><span class="status-{{ u.status }}">{{ u.status }}</span></td>
+          <td class="actions-cell">
+            <form method="POST" action="/admin/users/{{ u.id }}/tier" style="display:inline">
+              <input type="hidden" name="tier" value="household" />
+              <button type="submit" class="btn-small btn-upgrade">Upgrade</button>
+            </form>
+            <form method="POST" action="/admin/users/{{ u.id }}/disable" style="display:inline">
+              <button type="submit" class="btn-small btn-disable">Disable</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% elif active_tab == 'errors' %}
+  <div class="admin-section">
+    <h3>Error Logs</h3>
+    <div class="error-filters">
+      <select id="severity-filter">
+        <option value="">All Severities</option>
+        <option value="critical">Critical</option>
+        <option value="error">Error</option>
+        <option value="warning">Warning</option>
+        <option value="info">Info</option>
+      </select>
+      <input type="text" id="module-filter" placeholder="Filter by module..." />
+      <button onclick="applyFilters()" class="btn-small">Apply</button>
+    </div>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th>Module</th>
+          <th>Camera</th>
+          <th>Message</th>
+          <th>Timestamp</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for error in errors %}
+        <tr class="error-row error-{{ error.severity }}">
+          <td><span class="severity-badge severity-{{ error.severity }}">{{ error.severity }}</span></td>
+          <td>{{ error.module }}</td>
+          <td>{{ error.camera_id or 'N/A' }}</td>
+          <td>{{ error.message }}</td>
+          <td>{{ error.timestamp }}</td>
+          <td>
+            {% if error.resolved %}
+            <span class="status-resolved">Resolved</span>
+            {% else %}
+            <span class="status-unresolved">Unresolved</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not error.resolved %}
+            <button onclick="resolveError('{{ error.id }}')" class="btn-small btn-resolve">Resolve</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% elif active_tab == 'beta' %}
+  <div class="admin-section">
+    <h3>Beta Invite Management</h3>
+    <div class="invite-generator">
+      <h4>Generate New Invite Codes</h4>
+      <form method="POST" action="/admin/beta/invites/generate" class="inline-form">
+        <label for="count">Number of codes:</label>
+        <input type="number" id="count" name="count" min="1" max="100" value="1" />
+        <button type="submit" class="btn-primary">Generate</button>
+      </form>
+    </div>
+
+    <h4>Existing Invite Codes</h4>
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Status</th>
+          <th>Used By</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for invite in invites %}
+        <tr>
+          <td><code>{{ invite.code }}</code></td>
+          <td>
+            {% if invite.used %}
+            <span class="status-used">Used</span>
+            {% else %}
+            <span class="status-available">Available</span>
+            {% endif %}
+          </td>
+          <td>{{ invite.used_by or '-' }}</td>
+          <td>{{ invite.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% elif active_tab == 'feedback' %}
+  <div class="admin-section">
+    <h3>Beta Feedback</h3>
+    <div class="feedback-filters">
+      <select id="rating-filter">
+        <option value="">All Ratings</option>
+        <option value="5">5 Stars</option>
+        <option value="4">4 Stars</option>
+        <option value="3">3 Stars</option>
+        <option value="2">2 Stars</option>
+        <option value="1">1 Star</option>
+      </select>
+    </div>
+    <div class="feedback-list">
+      {% for feedback in feedback_list %}
+      <div class="feedback-card">
+        <div class="feedback-header">
+          <div class="feedback-rating">
+            {% for i in range(feedback.rating) %}
+            <span class="star filled">&#9733;</span>
+            {% endfor %}
+            {% for i in range(5 - feedback.rating) %}
+            <span class="star">&#9734;</span>
+            {% endfor %}
+          </div>
+          <div class="feedback-meta">
+            <span class="feedback-user">{{ feedback.user_email }}</span>
+            <span class="feedback-tier tier-{{ feedback.tier }}">{{ feedback.tier }}</span>
+            <span class="feedback-time">{{ feedback.timestamp }}</span>
+          </div>
+        </div>
+        <p class="feedback-comment">{{ feedback.comment }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function applyFilters() {
+  const severity = document.getElementById('severity-filter')?.value;
+  const module = document.getElementById('module-filter')?.value;
+  // In production, this would filter the table or make an API call
+  console.log('Filtering by:', { severity, module });
+}
+
+function resolveError(errorId) {
+  fetch(`/admin/errors/${errorId}/resolve`, { method: 'POST' })
+    .then(response => {
+      if (response.ok) {
+        location.reload();
+      }
+    });
+}
+</script>
+
+<style>
+.admin-dashboard {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  margin-bottom: 24px;
+}
+
+.admin-nav {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 8px;
+}
+
+.admin-nav a {
+  padding: 8px 16px;
+  text-decoration: none;
+  color: #666;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.admin-nav a:hover {
+  background: #f0f0f0;
+}
+
+.admin-nav a.active {
+  color: #1976d2;
+  background: #e3f2fd;
+  font-weight: 600;
+}
+
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.stat-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.stat-number {
+  font-size: 32px;
+  font-weight: bold;
+  margin: 0;
+  color: #333;
+}
+
+.stat-status {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.stat-status.healthy { color: #4caf50; }
+.stat-status.degraded { color: #ff9800; }
+.stat-status.unhealthy { color: #f44336; }
+.error-count { color: #f44336; }
+
+.admin-section {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.admin-section h3 {
+  margin: 0 0 16px 0;
+  color: #333;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 12px 8px;
+  border-bottom: 2px solid #e0e0e0;
+  font-size: 13px;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.admin-table td {
+  padding: 12px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+
+.admin-table tr:hover {
+  background: #fafafa;
+}
+
+.tier-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.tier-free { background: #e0e0e0; color: #666; }
+.tier-household { background: #e3f2fd; color: #1976d2; }
+.tier-business { background: #fce4ec; color: #c62828; }
+
+.status-active { color: #4caf50; font-weight: 600; }
+.status-trial { color: #ff9800; font-weight: 600; }
+.status-expired { color: #f44336; font-weight: 600; }
+.status-disabled { color: #999; font-weight: 600; }
+.status-resolved { color: #4caf50; }
+.status-unresolved { color: #f44336; }
+.status-used { color: #999; }
+.status-available { color: #4caf50; }
+
+.severity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-critical { background: #f44336; color: white; }
+.severity-error { background: #ff9800; color: white; }
+.severity-warning { background: #ffc107; color: #333; }
+.severity-info { background: #e0e0e0; color: #666; }
+
+.error-row.error-critical { background: #fff5f5; }
+.error-row.error-error { background: #fffaf0; }
+
+.actions-cell {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-small {
+  padding: 4px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  background: white;
+}
+
+.btn-upgrade { color: #1976d2; border-color: #1976d2; }
+.btn-disable { color: #f44336; border-color: #f44336; }
+.btn-resolve { color: #4caf50; border-color: #4caf50; }
+.btn-primary {
+  padding: 8px 16px;
+  background: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.error-filters, .feedback-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.error-filters select, .error-filters input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.invite-generator {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-form input[type="number"] {
+  width: 80px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feedback-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.feedback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.feedback-rating .star {
+  font-size: 18px;
+  color: #ddd;
+}
+
+.feedback-rating .star.filled {
+  color: #ffc107;
+}
+
+.feedback-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: #666;
+}
+
+.feedback-tier {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.feedback-comment {
+  margin: 0;
+  color: #333;
+  line-height: 1.5;
+}
+</style>
+{% endblock %}

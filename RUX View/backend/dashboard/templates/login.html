@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vision OS — Login</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-container">
+    <div class="login-card">
+      <h1 class="login-logo">Vision OS</h1>
+      <p class="login-subtitle">AI-Powered CCTV Intelligence</p>
+      <div class="login-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" placeholder="Enter your email" class="form-input">
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter your password" class="form-input">
+        </div>
+        <button onclick="loginWithEmail()" class="btn btn-primary btn-full">Sign In</button>
+        <div class="login-divider"><span>or</span></div>
+        <button onclick="loginWithGoogle()" class="btn btn-google btn-full">Sign in with Google</button>
+        <p class="login-error" id="login-error"></p>
+      </div>
+      <p class="login-footer">Powered by Vision OS &copy; 2024</p>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

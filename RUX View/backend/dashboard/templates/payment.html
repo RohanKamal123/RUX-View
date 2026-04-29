@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Payment{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Payment & Subscription</h2>
+</div>
+
+<div class="payment-current-plan">
+  <h3 class="section-title">Current Plan</h3>
+  <div class="plan-card plan-{{ user.tier }}">
+    <div class="plan-header">
+      <span class="tier-badge tier-{{ user.tier }}">{{ user.tier|capitalize }}</span>
+      <span class="plan-price">
+        {% if user.tier == "free" %}
+          Free
+        {% elif user.tier == "household" %}
+          BDT 299/month
+        {% elif user.tier == "business" %}
+          BDT 499/month
+        {% endif %}
+      </span>
+    </div>
+    <div class="plan-features">
+      {% if user.tier == "free" %}
+      <ul>
+        <li>&#x2705; 7 day history</li>
+        <li>&#x2705; Indoor only</li>
+        <li>&#x2705; Telegram alerts (20/day cap)</li>
+        <li>&#x2705; Daily digest</li>
+      </ul>
+      {% elif user.tier == "household" %}
+      <ul>
+        <li>&#x2705; 30 day history</li>
+        <li>&#x2705; All modes</li>
+        <li>&#x2705; Unlimited Telegram alerts</li>
+        <li>&#x2705; Person Re-ID</li>
+        <li>&#x2705; Cross-camera tracking</li>
+        <li>&#x2705; Ghost detection</li>
+        <li>&#x2705; NL Queries</li>
+        <li>&#x2705; Emergency voice notes</li>
+      </ul>
+      {% elif user.tier == "business" %}
+      <ul>
+        <li>&#x2705; 90 day history</li>
+        <li>&#x2705; All modes + Shop analytics</li>
+        <li>&#x2705; Unlimited Telegram alerts</li>
+        <li>&#x2705; Person Re-ID + Staff filter</li>
+        <li>&#x2705; Cross-camera + Ghost detection</li>
+        <li>&#x2705; NL Queries</li>
+        <li>&#x2705; Emergency voice notes</li>
+        <li>&#x2705; SMS fallback</li>
+        <li>&#x2705; Weekly reports</li>
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="payment-upgrade">
+  <h3 class="section-title">Upgrade Your Plan</h3>
+  <div class="pricing-table">
+    <div class="pricing-card {% if user.tier == 'household' %}pricing-current{% endif %}">
+      <h4>Household</h4>
+      <p class="pricing-amount">BDT 299<span>/month</span></p>
+      <ul class="pricing-features">
+        <li>1-5 cameras</li>
+        <li>30 day history</li>
+        <li>All modes</li>
+        <li>Unlimited alerts</li>
+        <li>Person Re-ID</li>
+        <li>NL Queries</li>
+      </ul>
+      {% if user.tier == "free" %}
+      <button class="btn btn-primary btn-full" onclick="showPaymentInstructions('household')">Upgrade</button>
+      {% else %}
+      <span class="pricing-current-label">Current Plan</span>
+      {% endif %}
+    </div>
+    <div class="pricing-card pricing-featured {% if user.tier == 'business' %}pricing-current{% endif %}">
+      <div class="pricing-badge">Best Value</div>
+      <h4>Business</h4>
+      <p class="pricing-amount">BDT 499<span>/month</span></p>
+      <ul class="pricing-features">
+        <li>1-5 cameras</li>
+        <li>90 day history</li>
+        <li>All modes + Shop analytics</li>
+        <li>Unlimited alerts + SMS</li>
+        <li>Staff filter</li>
+        <li>Weekly reports</li>
+      </ul>
+      {% if user.tier != "business" %}
+      <button class="btn btn-primary btn-full" onclick="showPaymentInstructions('business')">Upgrade</button>
+      {% else %}
+      <span class="pricing-current-label">Current Plan</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="payment-instructions" id="payment-instructions" style="display: none;">
+  <h3 class="section-title">Payment Instructions</h3>
+  <div class="instructions-card">
+    <div class="payment-methods">
+      <div class="payment-method">
+        <h4>bKash</h4>
+        <p class="payment-number">017XXXXXXXX</p>
+        <p class="payment-holder">Account Holder: Vision OS</p>
+      </div>
+      <div class="payment-method">
+        <h4>Nagad</h4>
+        <p class="payment-number">017XXXXXXXX</p>
+        <p class="payment-holder">Account Holder: Vision OS</p>
+      </div>
+    </div>
+    <div class="instructions-steps">
+      <ol>
+        <li>Send the amount to the bKash or Nagad number above</li>
+        <li>Send a screenshot to <strong>017XXXXXXXX</strong> via WhatsApp</li>
+        <li>Your tier will be upgraded within 24 hours</li>
+      </ol>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,9 +1,9 @@
 # Stage 1: Build Environment (using a full python image)
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Install dependencies (Gunicorn is now required for production)
 WORKDIR /app

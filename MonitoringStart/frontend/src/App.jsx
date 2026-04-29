@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
 // --- Mock Data ---
-// In a real app, this would be fetched from your API
 const MOCKED_SUMMARY_DATA = [
     { date: '2025-10-01', activity_count: 120, screenshot_count: 15 },
     { date: '2025-09-30', activity_count: 250, screenshot_count: 30 },
@@ -19,7 +18,7 @@ const MOCKED_DETAIL_DATA = {
         { timestamp: '11:35:10', event_type: 'screenshot', window_title: 'Photoshop - new_design.psd' },
         { timestamp: '11:40:15', event_type: 'idle', window_title: 'Photoshop - new_design.psd' },
     ]},
-    '2025-09-29': { date: '2025-09-29', entries: [] }, // Empty state for testing
+    '2025-09-29': { date: '2025-09-29', entries: [] },
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -33,7 +32,6 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [error, setError] = useState(null);
 
-  // --- Effects ---
   // Fetch summary data on initial load
   useEffect(() => {
     const fetchSummary = async () => {
@@ -50,7 +48,6 @@ function App() {
         }
       } catch (e) {
         setError(e.message);
-        // In case of API error, use mock data for demonstration
         setSummaryData(MOCKED_SUMMARY_DATA);
         if (MOCKED_SUMMARY_DATA.length > 0) {
           setSelectedDate(MOCKED_SUMMARY_DATA[0].date);
@@ -77,7 +74,6 @@ function App() {
         setDetailData(data);
       } catch (e) {
         setError(e.message);
-        // In case of API error, use mock data for demonstration
         setDetailData(MOCKED_DETAIL_DATA[selectedDate]);
       } finally {
         setLoadingDetails(false);

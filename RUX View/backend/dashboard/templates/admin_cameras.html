@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Admin — Camera Management{% endblock %}
+{% block content %}
+<div class="admin-cameras-page">
+  <div class="page-header">
+    <h2>Camera Management</h2>
+    <div class="header-actions">
+      <button id="refresh-btn" class="btn-icon" title="Refresh">
+        <span class="icon-refresh">&#x21bb;</span>
+      </button>
+      <span id="last-updated" class="last-updated"></span>
+    </div>
+  </div>
+
+  <!-- ── Summary Stats ──────────────────────────────────────── -->
+  <div class="camera-stats-bar">
+    <div class="stat-item total" data-stat="total">
+      <span class="stat-value" id="stat-total">0</span>
+      <span class="stat-label">Total</span>
+    </div>
+    <div class="stat-item online" data-stat="online">
+      <span class="stat-value" id="stat-online">0</span>
+      <span class="stat-label">Online</span>
+    </div>
+    <div class="stat-item offline" data-stat="offline">
+      <span class="stat-value" id="stat-offline">0</span>
+      <span class="stat-label">Offline</span>
+    </div>
+    <div class="stat-item error" data-stat="error">
+      <span class="stat-value" id="stat-error">0</span>
+      <span class="stat-label">Error</span>
+    </div>
+    <div class="stat-item uptime">
+      <span class="stat-value" id="stat-uptime">100%</span>
+      <span class="stat-label">Avg Uptime</span>
+    </div>
+    <div class="stat-item triggers">
+      <span class="stat-value" id="stat-triggers">0</span>
+      <span class="stat-label">Triggers (24h)</span>
+    </div>
+  </div>
+
+  <!-- ── Filters & Search ───────────────────────────────────── -->
+  <div class="camera-toolbar">
+    <div class="filter-group">
+      <select id="status-filter" class="filter-select">
+        <option value="all">All Status</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+        <option value="error">Error</option>
+      </select>
+      <input type="text" id="search-input" class="search-input"
+             placeholder="Search by camera name or user email..." />
+    </div>
+    <div class="bulk-actions" id="bulk-toolbar" style="display:none;">
+      <span class="bulk-count" id="bulk-count">0 selected</span>
+      <button class="btn-bulk btn-enable" data-action="enable">Enable</button>
+      <button class="btn-bulk btn-disable" data-action="disable">Disable</button>
+      <button class="btn-bulk btn-delete" data-action="delete">Delete</button>
+      <button class="btn-bulk btn-reset" data-action="reset">Reset</button>
+      <button class="btn-bulk btn-cancel" id="bulk-deselect-all">Deselect All</button>
+    </div>
+  </div>
+
+  <!-- ── Camera Grid ────────────────────────────────────────── -->
+  <div class="camera-grid" id="camera-grid">
+    <div class="loading-state">Loading cameras...</div>
+  </div>
+
+  <!-- ── Pagination ─────────────────────────────────────────── -->
+  <div class="pagination" id="pagination">
+    <button id="prev-page" class="page-btn" disabled>&laquo; Prev</button>
+    <span id="page-info" class="page-info">Page 1 of 1</span>
+    <button id="next-page" class="page-btn" disabled>Next &raquo;</button>
+  </div>
+</div>
+
+<!-- ── Camera Detail Modal ──────────────────────────────────── -->
+<div id="camera-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-content modal-lg">
+    <div class="modal-header">
+      <h3 id="modal-camera-name">Camera Details</h3>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-tab="health">Health</button>
+        <button class="modal-tab" data-tab="metrics">Metrics</button>
+        <button class="modal-tab" data-tab="config">Configuration</button>
+        <button class="modal-tab" data-tab="cost">Cost Breakdown</button>
+      </div>
+
+      <!-- Health Tab -->
+      <div class="tab-panel active" id="tab-health">
+        <div class="health-metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Status</span>
+            <span class="metric-value" id="modal-status">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Last Heartbeat</span>
+            <span class="metric-value" id="modal-last-hb">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Uptime (24h)</span>
+            <span class="metric-value" id="modal-uptime-24h">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Uptime (7d)</span>
+            <span class="metric-value" id="modal-uptime-7d">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Errors (24h)</span>
+            <span class="metric-value" id="modal-errors-24h">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Errors (7d)</span>
+            <span class="metric-value" id="modal-errors-7d">-</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="uptime-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Metrics Tab -->
+      <div class="tab-panel" id="tab-metrics">
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Total Triggers</span>
+            <span class="metric-value" id="modal-triggers">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">AI Calls</span>
+            <span class="metric-value" id="modal-ai-calls">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Bandwidth</span>
+            <span class="metric-value" id="modal-bandwidth">-</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Events Generated</span>
+            <span class="metric-value" id="modal-events">-</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="trigger-trend-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Config Tab -->
+      <div class="tab-panel" id="tab-config">
+        <div class="config-form">
+          <div class="form-group">
+            <label>Camera Name</label>
+            <input type="text" id="config-name" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label>Mode</label>
+            <select id="config-mode" class="form-select">
+              <option value="indoor">Indoor</option>
+              <option value="outdoor">Outdoor</option>
+              <option value="parking">Parking</option>
+              <option value="mixed">Mixed</option>
+              <option value="shop">Shop</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Location ID</label>
+            <input type="text" id="config-location" class="form-input" />
+          </div>
+          <button id="config-save" class="btn-primary">Save Config</button>
+        </div>
+      </div>
+
+      <!-- Cost Tab -->
+      <div class="tab-panel" id="tab-cost">
+        <div class="cost-grid">
+          <div class="metric-card">
+            <span class="metric-label">AI Cost</span>
+            <span class="metric-value" id="modal-ai-cost">$0.00</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Storage Cost</span>
+            <span class="metric-value" id="modal-storage-cost">$0.00</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Bandwidth Cost</span>
+            <span class="metric-value" id="modal-bandwidth-cost">$0.00</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Total Cost</span>
+            <span class="metric-value" id="modal-total-cost">$0.00</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Cost / Day</span>
+            <span class="metric-value" id="modal-cost-per-day">$0.00</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Cost / Trigger</span>
+            <span class="metric-value" id="modal-cost-per-trigger">$0.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirmation Modal ────────────────────────────── -->
+<div id="confirm-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-content modal-sm">
+    <div class="modal-header">
+      <h3>Confirm Delete</h3>
+      <button class="modal-close" id="confirm-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message">Are you sure you want to delete the selected cameras?</p>
+      <p class="confirm-detail" id="confirm-detail"></p>
+    </div>
+    <div class="modal-footer">
+      <button id="confirm-cancel" class="btn-secondary">Cancel</button>
+      <button id="confirm-proceed" class="btn-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/admin_cameras.js"></script>
+{% endblock %}

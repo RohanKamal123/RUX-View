@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "ভিশন ওএস",
+    "tagline": "আপনার এআই নিরাপত্তা"
+  },
+  "nav": {
+    "events": "ইভেন্ট",
+    "cameras": "ক্যামেরা",
+    "settings": "সেটিংস",
+    "payment": "পেমেন্ট",
+    "admin": "অ্যাডমিন"
+  },
+  "events": {
+    "title": "ইভেন্ট ফিড",
+    "no_events": "কোনো ইভেন্ট নেই। আপনার ক্যামেরা শান্ত।",
+    "filter_all": "সব ক্যামেরা",
+    "filter_threat": "সব হুমকি",
+    "duration": "সময়: {seconds}সে",
+    "persons": "ব্যক্তি: {ids}",
+    "motion_detected": "মোশন শনাক্ত হয়েছে"
+  },
+  "threat": {
+    "emergency": "জরুরি",
+    "high": "উচ্চ",
+    "medium": "মাঝারি",
+    "low": "নিম্ন"
+  },
+  "alerts": {
+    "high_threat": "ভিশনওএস উচ্চ - {camera}",
+    "unknown_person": "{location} এ অজানা ব্যক্তি",
+    "motion": "{camera} এ মোশন শনাক্ত হয়েছে",
+    "audio": "{camera} এ শব্দ শনাক্ত: {sound_class}",
+    "trial_ended": "আপনার ট্রায়াল শেষ হয়েছে। চালিয়ে যেতে আপগ্রেড করুন।",
+    "blind_spot": "শব্দ শনাক্ত, ভিজুয়াল নেই — {camera} এ সম্ভাব্য ব্লাইন্ড স্পট"
+  },
+  "digest": {
+    "daily_title": "ভিশনওএস দৈনিক - {date}",
+    "weekly_title": "ভিশনওএস সাপ্তাহিক - {week_start} থেকে {week_end}",
+    "events": "{count}টি ইভেন্ট",
+    "high_count": "{count}টি উচ্চ",
+    "visitors": "দর্শনার্থী: {total} ({familiar} পরিচিত, {unknown} অজানা)",
+    "audio": "অডিও: {count}টি অ্যালার্ট",
+    "all_clear": "আজ সব শান্ত।",
+    "gate_status": "গেটের অবস্থা: {status}"
+  },
+  "settings": {
+    "title": "সেটিংস",
+    "notifications": "নোটিফিকেশন",
+    "language": "ভাষা",
+    "digest_time": "দৈনিক ডাইজেস্টের সময়",
+    "theme": "থিম",
+    "logout": "লগআউট",
+    "delete_account": "অ্যাকাউন্ট মুছুন"
+  },
+  "payment": {
+    "title": "পেমেন্ট",
+    "instructions": "আপনার ভিশন ওএস সাবস্ক্রিপশন আপগ্রেড করতে:",
+    "step1": "{provider} নম্বরে {price} টাকা পাঠান: {number}",
+    "step2": "হোয়াটসঅ্যাপের মাধ্যমে {contact} এ একটি স্ক্রিনশট পাঠান",
+    "step3": "২৪ ঘন্টার মধ্যে আপনার টিয়ার আপগ্রেড হবে",
+    "free": "ফ্রি",
+    "household": "পরিবার",
+    "business": "ব্যবসা"
+  },
+  "onboarding": {
+    "welcome": "ভিশন ওএস এ স্বাগতম",
+    "subtitle": "আপনার এআই-চালিত নিরাপত্তা বুদ্ধিমত্তা প্ল্যাটফর্ম।",
+    "step1_title": "আপনার অবস্থানের নাম দিন",
+    "step2_title": "ভিশন ওএস কানেক্ট ডাউনলোড করুন",
+    "step3_title": "আপনার ক্যামেরা সংযুক্ত করুন",
+    "all_set": "আপনি পুরোপুরি প্রস্তুত!",
+    "get_started": "শুরু করুন"
+  },
+  "errors": {
+    "camera_offline": "ক্যামেরা {name} অফলাইন",
+    "connection_lost": "{camera} এর সাথে সংযোগ বিচ্ছিন্ন",
+    "api_error": "সেবা সাময়িকভাবে অনুপলব্ধ",
+    "auth_expired": "সেশন শেষ হয়েছে। অনুগ্রহ করে পুনরায় লগইন করুন।"
+  },
+  "common": {
+    "loading": "লোড হচ্ছে...",
+    "save": "সংরক্ষণ",
+    "cancel": "বাতিল",
+    "delete": "মুছুন",
+    "confirm": "নিশ্চিত করুন",
+    "back": "পিছনে",
+    "next": "পরবর্তী",
+    "finish": "শেষ",
+    "retry": "পুনরায় চেষ্টা",
+    "search": "অনুসন্ধান",
+    "no_results": "কোনো ফলাফল পাওয়া যায়নি"
+  }
+}

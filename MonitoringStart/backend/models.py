@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, Column, Integer, String, DateTime
-from .database.db import Base
+from .database.base import Base
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

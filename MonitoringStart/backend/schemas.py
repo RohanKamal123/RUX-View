@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List
+from datetime import datetime, date
 
 # Shared properties
 class ActivityLogBase(BaseModel):
@@ -24,3 +24,12 @@ class ActivityLogOut(ActivityLogBase):
 
     class Config:
         from_attributes = True
+
+class DailyLogSummary(BaseModel):
+    date: date
+    activity_count: int
+    screenshot_count: int
+
+class DailyLogDetails(BaseModel):
+    date: date
+    entries: List[ActivityLogOut]

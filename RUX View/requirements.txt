@@ -37,6 +37,9 @@ apscheduler==3.10.4                  # Async job scheduler
 
 # ── Audio/TTS ───────────────────────────────────────────────
 kokoro-onnx==0.1.0                   # TTS for emergency voice notes
+pyaudio==0.2.14                      # Audio capture (client agent)
+tensorflow==2.15.0                   # YAMNet runtime (client agent)
+tensorflow-hub==0.16.1               # YAMNet model loading (client agent)
 
 # ── Telegram ────────────────────────────────────────────────
 python-telegram-bot==20.7

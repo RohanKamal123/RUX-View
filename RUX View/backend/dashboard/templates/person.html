@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Person {{ person_uid }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <a href="/" class="back-link">&larr; Back to Events</a>
+    <h2>Person Profile</h2>
+  </div>
+  <div class="person-actions">
+    <span class="threat-badge {{ threat_flag.lower() }}">{{ threat_flag }} Threat</span>
+    <button class="btn btn-outline" onclick="editPersonLabel('{{ person_uid }}')">Edit Label</button>
+  </div>
+</div>
+
+<div class="person-header">
+  <div class="person-avatar">
+    <div class="person-avatar-placeholder">{{ person_uid[:2] }}</div>
+  </div>
+  <div class="person-info">
+    <h3 class="person-uid">{{ person_uid }}</h3>
+    <p class="person-meta">Seen {{ sightings|length }} time{% if sightings|length != 1 %}s{% endif %}</p>
+    <p class="person-label" id="person-label">Click "Edit Label" to add a custom label</p>
+  </div>
+</div>
+
+{% if threat_flag == "HIGH" %}
+<div class="alert-banner alert-danger">
+  &#x26A0;&#xFE0F; This person has been flagged in HIGH or EMERGENCY threat events.
+</div>
+{% endif %}
+
+<h3 class="section-title">Sightings Timeline</h3>
+<div class="timeline">
+  {% for sighting in sightings %}
+  <div class="timeline-item threat-{{ sighting.threat_level.lower() }}">
+    <div class="timeline-marker {{ sighting.threat_level.lower() }}"></div>
+    <div class="timeline-content">
+      <div class="timeline-header">
+        <span class="threat-badge {{ sighting.threat_level.lower() }}">{{ sighting.threat_level }}</span>
+        <span class="timeline-camera">{{ sighting.camera_name }}</span>
+        <span class="timeline-time">{{ sighting.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+      </div>
+      <div class="appearance-details">
+        <div class="appearance-row">
+          <span class="appearance-label">Gender:</span>
+          <span class="appearance-value">{{ sighting.appearance.gender }}</span>
+        </div>
+        <div class="appearance-row">
+          <span class="appearance-label">Clothing:</span>
+          <span class="appearance-value">{{ sighting.appearance.clothing }}</span>
+        </div>
+        <div class="appearance-row">
+          <span class="appearance-label">Objects:</span>
+          <span class="appearance-value">{{ sighting.appearance.hand_objects }}</span>
+        </div>
+        <div class="appearance-row">
+          <span class="appearance-label">Action:</span>
+          <span class="appearance-value">{{ sighting.appearance.action }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon">&#x1F465;</div>
+    <p>No sightings recorded for this person.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

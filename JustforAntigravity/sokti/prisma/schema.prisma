@@ -1,0 +1,16 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Exercise {
+  id               Int     @id @default(autoincrement())
+  name             String
+  description      String
+  difficulty       String
+  category         String
+  contraindications String?
+}

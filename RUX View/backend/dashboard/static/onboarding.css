@@ -1,0 +1,751 @@
+/**
+ * onboarding.css — Vision OS Multi-Step Onboarding Wizard
+ *
+ * Dark navy theme, mobile-first responsive design.
+ * Progress indicator, step cards, tier selection.
+ */
+
+/* ── Layout ──────────────────────────────────────────────────── */
+
+.onboarding-wrapper {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  min-height: 100vh;
+}
+
+/* ── Progress Bar ────────────────────────────────────────────── */
+
+.progress-bar-container {
+  margin-bottom: 32px;
+  padding: 0 8px;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 2;
+}
+
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.progress-step.active {
+  opacity: 1;
+}
+
+.progress-step.completed {
+  opacity: 0.8;
+}
+
+.progress-step.completed .step-circle {
+  background: #4caf50;
+  border-color: #4caf50;
+  color: white;
+}
+
+.step-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1a2332;
+  border: 2px solid #2a3a52;
+  color: #8899aa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  transition: all 0.3s;
+}
+
+.progress-step.active .step-circle {
+  background: #1976d2;
+  border-color: #1976d2;
+  color: white;
+  box-shadow: 0 0 12px rgba(25, 118, 210, 0.4);
+}
+
+.step-label {
+  font-size: 11px;
+  color: #8899aa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.progress-step.active .step-label {
+  color: #e0e0e0;
+}
+
+.progress-track {
+  height: 4px;
+  background: #2a3a52;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: -18px;
+  position: relative;
+  z-index: 1;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1976d2, #42a5f5);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ── Step Cards ──────────────────────────────────────────────── */
+
+.onboarding-step {
+  display: none;
+  background: #1a2332;
+  border: 1px solid #2a3a52;
+  border-radius: 16px;
+  padding: 32px;
+  animation: fadeIn 0.3s ease;
+}
+
+.onboarding-step.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.step-header h2 {
+  color: #e0e0e0;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.step-desc {
+  color: #8899aa;
+  font-size: 15px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Form Elements ───────────────────────────────────────────── */
+
+.step-body {
+  margin-bottom: 24px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  color: #b0bec5;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 15px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.15);
+}
+
+.form-input::placeholder {
+  color: #4a5a6a;
+}
+
+textarea.form-input {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238899aa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.field-hint {
+  display: block;
+  color: #5a6a7a;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.field-hint.success {
+  color: #4caf50;
+}
+
+.field-hint.error {
+  color: #f44336;
+}
+
+.optional {
+  color: #5a6a7a;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-group.half {
+  flex: 1;
+}
+
+/* ── Radio & Checkbox Groups ─────────────────────────────────── */
+
+.radio-group,
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.radio-option,
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 8px;
+  color: #b0bec5;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radio-option:hover,
+.checkbox-option:hover {
+  border-color: #1976d2;
+  background: #152030;
+}
+
+.radio-option input,
+.checkbox-option input {
+  accent-color: #1976d2;
+}
+
+/* ── Hours Row ───────────────────────────────────────────────── */
+
+.hours-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.time-input {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.hours-sep {
+  color: #5a6a7a;
+  font-size: 14px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+
+.step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #2a3a52;
+}
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #1976d2;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1565c0;
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #8899aa;
+  border: 1px solid #2a3a52;
+}
+
+.btn-secondary:hover {
+  background: #152030;
+  color: #b0bec5;
+}
+
+.btn-outline {
+  background: transparent;
+  color: #1976d2;
+  border: 1px solid #1976d2;
+}
+
+.btn-outline:hover {
+  background: rgba(25, 118, 210, 0.1);
+}
+
+.btn-danger {
+  background: transparent;
+  color: #f44336;
+  border: 1px solid #f44336;
+}
+
+.btn-danger:hover {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.btn-large {
+  padding: 14px 36px;
+  font-size: 16px;
+}
+
+/* ── Camera Entry ────────────────────────────────────────────── */
+
+.camera-entry {
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.cam-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.cam-header h4 {
+  color: #e0e0e0;
+  margin: 0;
+  font-size: 16px;
+}
+
+.cam-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.cam-test-result {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cam-test-result.success {
+  color: #4caf50;
+}
+
+.cam-test-result.error {
+  color: #f44336;
+}
+
+.add-camera-btn {
+  width: 100%;
+  padding: 12px;
+  border: 2px dashed #2a3a52;
+  border-radius: 12px;
+  background: transparent;
+  color: #8899aa;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-camera-btn:hover {
+  border-color: #1976d2;
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.05);
+}
+
+/* ── Mode Entry ──────────────────────────────────────────────── */
+
+.mode-entry {
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 12px;
+}
+
+.mode-cam-header h4 {
+  color: #e0e0e0;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.no-cameras-msg {
+  color: #5a6a7a;
+  text-align: center;
+  padding: 24px;
+  font-style: italic;
+}
+
+/* ── Telegram Setup ──────────────────────────────────────────── */
+
+.telegram-setup {
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.telegram-setup p {
+  color: #8899aa;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.qr-placeholder {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.qr-simulated {
+  width: 160px;
+  height: 160px;
+  background: white;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.qr-simulated span {
+  font-size: 48px;
+}
+
+.qr-simulated p {
+  color: #333;
+  font-size: 12px;
+  margin: 0;
+}
+
+/* ── Tier Cards ──────────────────────────────────────────────── */
+
+.tier-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tier-card {
+  background: #0d1520;
+  border: 2px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.tier-card:hover {
+  border-color: #1976d2;
+  transform: translateY(-2px);
+}
+
+.tier-card.selected {
+  border-color: #1976d2;
+  background: rgba(25, 118, 210, 0.08);
+  box-shadow: 0 0 16px rgba(25, 118, 210, 0.2);
+}
+
+.tier-header h3 {
+  color: #e0e0e0;
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+
+.tier-price {
+  color: #42a5f5;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.tier-period {
+  color: #5a6a7a;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.tier-features {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  text-align: left;
+}
+
+.tier-features li {
+  color: #8899aa;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid #1a2332;
+}
+
+.tier-features li:last-child {
+  border-bottom: none;
+}
+
+/* ── Coupon Row ──────────────────────────────────────────────── */
+
+.coupon-row {
+  display: flex;
+  gap: 8px;
+}
+
+.coupon-row .form-input {
+  flex: 1;
+}
+
+/* ── Summary Box ─────────────────────────────────────────────── */
+
+.summary-box {
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.summary-box h4 {
+  color: #e0e0e0;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  color: #8899aa;
+  font-size: 14px;
+  border-bottom: 1px solid #1a2332;
+}
+
+.summary-row:last-child {
+  border-bottom: none;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+
+/* ── Completion Screen ───────────────────────────────────────── */
+
+.completion-icon {
+  font-size: 56px;
+  margin-bottom: 8px;
+}
+
+.completion-body {
+  text-align: center;
+}
+
+.completion-stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin: 24px 0;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: #42a5f5;
+}
+
+.stat-label {
+  display: block;
+  font-size: 12px;
+  color: #5a6a7a;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.next-steps {
+  background: #0d1520;
+  border: 1px solid #2a3a52;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: left;
+  margin: 24px 0;
+}
+
+.next-steps h3 {
+  color: #e0e0e0;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.next-steps ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.next-steps li {
+  padding: 8px 0;
+  color: #8899aa;
+  font-size: 14px;
+  border-bottom: 1px solid #1a2332;
+}
+
+.next-steps li:last-child {
+  border-bottom: none;
+}
+
+.next-steps a {
+  color: #42a5f5;
+  text-decoration: none;
+}
+
+.next-steps a:hover {
+  text-decoration: underline;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .onboarding-wrapper {
+    padding: 16px 12px 32px;
+  }
+
+  .onboarding-step {
+    padding: 24px 16px;
+  }
+
+  .step-header h2 {
+    font-size: 20px;
+  }
+
+  .tier-cards {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .tier-card {
+    padding: 16px;
+  }
+
+  .tier-features {
+    display: none;
+  }
+
+  .tier-card.selected .tier-features {
+    display: block;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .completion-stats {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .step-label {
+    display: none;
+  }
+
+  .step-circle {
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .step-actions {
+    flex-direction: column;
+  }
+
+  .step-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .onboarding-step {
+    padding: 20px 12px;
+    border-radius: 12px;
+  }
+
+  .hours-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .time-input {
+    width: 100%;
+  }
+
+  .hours-sep {
+    text-align: center;
+  }
+}

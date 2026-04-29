@@ -7,3 +7,7 @@ alembic
 python-dotenv
 gunicorn
 psycopg2-binary
+psycopg[binary,async]
+sqlalchemy[asyncio]
+asyncpg
+aiosqlite

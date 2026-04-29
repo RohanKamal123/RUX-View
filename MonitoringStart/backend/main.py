@@ -2,7 +2,9 @@ import os
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 from typing import List
+from datetime import datetime
 
 from . import crud, models, schemas
 from .database.db import engine, Base, get_db
@@ -60,3 +62,76 @@ async def read_log(id: int, db: AsyncSession = Depends(get_db)):
     if db_log is None:
         raise HTTPException(status_code=404, detail="Log not found")
     return db_log
+
+# NEW ENDPOINTS FOR FRONTEND
+
+@app.get("/api/logs/daily")
+async def get_daily_summary(db: AsyncSession = Depends(get_db)):
+    """Get daily summary of activity logs"""
+    try:
+        # Query to get daily summaries
+        query = select(
+            func.date(models.ActivityLog.timestamp).label('date'),
+            func.count(models.ActivityLog.id).label('activity_count'),
+            func.count(models.ActivityLog.screenshot).label('screenshot_count')
+        ).group_by(
+            func.date(models.ActivityLog.timestamp)
+        ).order_by(
+            func.date(models.ActivityLog.timestamp).desc()
+        )
+        
+        result = await db.execute(query)
+        rows = result.all()
+        
+        # Format the response
+        daily_summaries = [
+            {
+                "date": str(row.date),
+                "activity_count": row.activity_count,
+                "screenshot_count": row.screenshot_count
+            }
+            for row in rows
+        ]
+        
+        return daily_summaries
+    except Exception as e:
+        print(f"Error in get_daily_summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/logs/detail/{date}")
+async def get_log_details(date: str, db: AsyncSession = Depends(get_db)):
+    """Get detailed logs for a specific date"""
+    try:
+        # Parse the date string
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Query logs for the specific date
+        query = select(models.ActivityLog).where(
+            func.date(models.ActivityLog.timestamp) == target_date
+        ).order_by(models.ActivityLog.timestamp)
+        
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        
+        # Format the response
+        entries = [
+            {
+                "timestamp": log.timestamp.strftime("%H:%M:%S"),
+                "event_type": "screenshot" if log.screenshot is not None else "activity",
+                "window_title": log.window or "N/A"
+            }
+            for log in logs
+        ]
+        
+        return {
+            "date": date,
+            "entries": entries
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_log_details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

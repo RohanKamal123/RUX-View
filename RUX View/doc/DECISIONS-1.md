@@ -38,20 +38,12 @@ No separate client needed — see D001.
 
 ---
 
-## D003 — Whisper (OpenAI) for audio transcription
+## D003 — Groq for audio transcription
 
-**Decision:** OpenAI Whisper API (small model) for Bangla transcription
+**Decision:** Groq for Bangla transcription
 
-**Why:**
-- Whisper small has confirmed excellent Bangla accuracy
-- On-device alternatives (Whisper.cpp) too complex for V1
-- $0.006/minute is negligible at 10 triggers/day per camera
-- Bangla transcription is a genuine market differentiator
-- "Your camera heard CHOR CHOR at 2am" — nobody else does this
 
 **Upgrade path:**
-- V2: on-device Whisper.cpp to eliminate API cost
-- When user base justifies custom fine-tuned Bangla model
 
 ---
 
