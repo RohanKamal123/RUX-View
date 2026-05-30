@@ -10,28 +10,26 @@ Usage:
     # Access any setting
     db_url = settings.database_url
     gemini_key = settings.gemini_api_key
-    groq_key = settings.groq_api_key
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # ── Database ────────────────────────────────────────────────
+    # ── Database (Neon PostgreSQL + pgvector) ──────────────────
     database_url: str = "postgresql+asyncpg://user:password@localhost:5432/visionos"
 
     # ── AI APIs ─────────────────────────────────────────────────
-
-    gemini_api_key: str = "AIzaSyCZMS2WlRsTesfgoV7WX6kyKj0WjcOAp7A"
-
-    groq_api_key: str = "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"
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
 
     # ── Firebase Auth ───────────────────────────────────────────
-    firebase_credentials_path: str = "./firebase-service-account.json"
+    firebase_credentials_path: str = ""
+    firebase_credentials_json: str = ""  # Inline JSON for production
 
     # ── Telegram ────────────────────────────────────────────────
-    telegram_bot_token: str = "8209307824:AAHd9TfVzzCVp54Cm_55xi9i7fQCa1NzBhE"
-    telegram_chat_id: str = "-1001945678901"
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     # ── SMS (SSL Wireless Bangladesh) ──────────────────────────
     ssl_wireless_api_key: str = ""
@@ -44,10 +42,11 @@ class Settings(BaseSettings):
     bkash_username: str = ""
     bkash_password: str = ""
     bkash_sandbox: bool = True
+    bkash_number: str = ""
 
     # ── Application ─────────────────────────────────────────────
     secret_key: str = ""
-    environment: str = "development"
+    environment: str = "development"  # development | staging | production
     log_level: str = "INFO"
 
     # ── Google Cloud (for deployment) ──────────────────────────
@@ -58,6 +57,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 

@@ -2,7 +2,6 @@
 server.py — Vision OS Dashboard Server (PostgreSQL Backend).
 
 FastAPI application with:
-- Layer 1: MEGA.nz — DISABLED (Windows file-locking bug)
 - Layer 2: Neon PostgreSQL + pgvector for structured data & vectors
 - Firebase Auth for production authentication
 - Jinja2 templates for dashboard pages
@@ -67,11 +66,27 @@ async def lifespan(app: FastAPI):
         logger.info("PostgreSQL CRUD initialized")
 
         # Auto-create tables if they don't exist (e.g., first deploy)
-        await init_db()
-        logger.info("Database tables created / verified")
+        # This handles both fresh deploys and schema updates
+        try:
+            await init_db()
+            logger.info("Database tables created / verified via init_db()")
+        except Exception as schema_err:
+            logger.error("init_db() failed: %s", schema_err)
+            # Fallback: try running Alembic migrations
+            try:
+                from alembic.config import Config
+                from alembic import command
+                alembic_cfg = Config("alembic.ini")
+                command.upgrade(alembic_cfg, "head")
+                logger.info("Alembic migrations completed successfully")
+            except Exception as mig_err:
+                logger.error("Alembic migration also failed: %s", mig_err)
+                raise  # Re-raise so we know PG is broken
     except Exception as e:
         logger.error("Failed to initialize PostgreSQL CRUD: %s", e)
         logger.warning("Running without PostgreSQL — vector search unavailable")
+        pg_crud = None
+        app.state.pg_crud = None
 
     # ── 3. Create HybridCRUD (PostgreSQL only, MEGA.nz disabled) ──
     global hybrid_crud
@@ -92,6 +107,9 @@ async def lifespan(app: FastAPI):
 
     import backend.api.queries as queries_api
     queries_api.hybrid_crud = hybrid_crud
+
+    import backend.api.payments as payments_api
+    payments_api.hybrid_crud = hybrid_crud
 
     logger.info("HybridCRUD initialized (PG: %s)",
                 "ok" if pg_crud else "unavailable")
@@ -191,7 +209,6 @@ async def health_check():
     return {
         "status": "ok",
         "storage": {
-            "layer1_mega": "disabled",
             "layer2_postgres": pg_status,
         },
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
@@ -257,15 +274,17 @@ from backend.api.cameras import router as cameras_router
 from backend.api.users import router as users_router
 from backend.api.triggers import router as triggers_router
 from backend.api.queries import router as queries_router
-from backend.api.data_export import router as data_export_router
 from backend.api.analytics import router as analytics_router
+from backend.api.payments import router as payments_router
 
 app.include_router(dashboard_router)
+app.include_router(payments_router)
 app.include_router(cameras_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(triggers_router, prefix="/api")
 app.include_router(queries_router, prefix="/api")
-app.include_router(data_export_router)
 app.include_router(analytics_router)
+
+
 
 

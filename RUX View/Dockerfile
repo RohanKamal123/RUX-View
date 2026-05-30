@@ -1,42 +1,61 @@
-# Vision OS — Dockerfile for Google Cloud Run
-FROM python:3.12-slim
+# ──────────────────────────────────────────────────────────────
+# Vision OS — Production Dockerfile
+# Target: Cloud PaaS (Railway / Render / Cloud Run)
+# Base: python:3.12-slim with system deps for OpenCV + audio
+# ──────────────────────────────────────────────────────────────
 
-WORKDIR /app
+FROM python:3.12-slim AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libgl1-mesa-glx \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+WORKDIR /app
+
+# Copy requirements first for layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir firebase-admin pgvector
+
+# ── Runtime stage ────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/snapshots /app/thumbnails /app/logs
-
-# Run as non-root user
+# Create non-root user
 RUN useradd -m -u 1000 visionos && chown -R visionos:visionos /app
 USER visionos
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"PORT\", \"8080\")}/health')"
 
-# Start server
-CMD ["gunicorn", "backend.dashboard.server:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "2", \
-     "--bind", "0.0.0.0:8080", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+EXPOSE 8080
+
+CMD uvicorn backend.dashboard.server:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2
