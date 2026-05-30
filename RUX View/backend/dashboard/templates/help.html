@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Help Center — Vision OS</title>
+  <meta name="description" content="Vision OS Help Center — Find answers, guides, and support for your AI-powered security system.">
+  <meta name="keywords" content="Vision OS, help, support, cameras, alerts, billing, troubleshooting, FAQ">
+  <meta property="og:title" content="Help Center — Vision OS">
+  <meta property="og:description" content="Find answers, guides, and support for your AI-powered security system.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://visionos.com/help">
+  <link rel="stylesheet" href="/static/help.css?v=f798ecb">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ═══ Navigation ═══ -->
+  <nav class="help-nav">
+    <div class="nav-container">
+      <a href="/" class="nav-logo">Vision OS</a>
+      <div class="nav-links">
+        <a href="/" class="nav-link">Home</a>
+        <a href="/login" class="nav-link">Sign In</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ Hero ═══ -->
+  <section class="help-hero">
+    <div class="help-hero-container">
+      <h1 class="help-hero-title">How can we help you?</h1>
+      <p class="help-hero-subtitle">Search our knowledge base or browse by category</p>
+      <div class="help-search-container">
+        <div class="help-search-bar">
+          <span class="search-icon" aria-hidden="true">&#128269;</span>
+          <input
+            type="text"
+            id="helpSearch"
+            class="help-search-input"
+            placeholder="Search articles..."
+            aria-label="Search help articles"
+            autocomplete="off"
+          />
+          <button class="search-clear" id="searchClear" aria-label="Clear search">&#10005;</button>
+        </div>
+        <div class="search-results" id="searchResults" role="listbox" aria-label="Search results"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Category Filters ═══ -->
+  <section class="help-filters">
+    <div class="help-filters-container">
+      <button class="filter-btn active" data-category="all">All</button>
+      <button class="filter-btn" data-category="getting-started">Getting Started</button>
+      <button class="filter-btn" data-category="cameras">Cameras</button>
+      <button class="filter-btn" data-category="alerts">Alerts</button>
+      <button class="filter-btn" data-category="billing">Billing</button>
+      <button class="filter-btn" data-category="troubleshooting">Troubleshooting</button>
+      <button class="filter-btn" data-category="faq">FAQ</button>
+    </div>
+  </section>
+
+  <!-- ═══ Category Cards ═══ -->
+  <section class="help-categories">
+    <div class="help-container">
+      <div class="categories-grid" id="categoriesGrid">
+
+        <!-- Getting Started -->
+        <div class="category-card" data-category="getting-started">
+          <div class="category-icon">&#128640;</div>
+          <h3 class="category-title">Getting Started</h3>
+          <p class="category-desc">Set up your account and connect your first camera</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/how-to-connect-first-camera">How to connect your first camera</a></li>
+            <li><a href="/help/article/understanding-the-dashboard">Understanding the dashboard</a></li>
+            <li><a href="/help/article/setting-up-telegram-alerts">Setting up Telegram alerts</a></li>
+            <li><a href="/help/article/adding-multiple-cameras">Adding multiple cameras</a></li>
+          </ul>
+        </div>
+
+        <!-- Cameras -->
+        <div class="category-card" data-category="cameras">
+          <div class="category-icon">&#128247;</div>
+          <h3 class="category-title">Cameras</h3>
+          <p class="category-desc">Manage and optimize your camera setup</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/camera-modes-explained">Camera modes explained</a></li>
+            <li><a href="/help/article/rtsp-url-format">RTSP URL format</a></li>
+            <li><a href="/help/article/troubleshooting-connection">Troubleshooting connection</a></li>
+            <li><a href="/help/article/camera-placement-tips">Camera placement tips</a></li>
+            <li><a href="/help/article/managing-10-cameras">Managing 10 cameras</a></li>
+          </ul>
+        </div>
+
+        <!-- Alerts -->
+        <div class="category-card" data-category="alerts">
+          <div class="category-icon">&#128276;</div>
+          <h3 class="category-title">Alerts</h3>
+          <p class="category-desc">Configure and customize your alert preferences</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/alert-levels-explained">Alert levels explained</a></li>
+            <li><a href="/help/article/customizing-alert-preferences">Customizing alert preferences</a></li>
+            <li><a href="/help/article/emergency-alerts">Emergency alerts</a></li>
+            <li><a href="/help/article/quiet-hours-setup">Quiet hours setup</a></li>
+          </ul>
+        </div>
+
+        <!-- Billing -->
+        <div class="category-card" data-category="billing">
+          <div class="category-icon">&#128179;</div>
+          <h3 class="category-title">Billing</h3>
+          <p class="category-desc">Manage your subscription and payments</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/pricing-plans">Pricing plans</a></li>
+            <li><a href="/help/article/how-to-pay-via-bkash">How to pay via bKash</a></li>
+            <li><a href="/help/article/understanding-your-bill">Understanding your bill</a></li>
+            <li><a href="/help/article/cancelling-your-subscription">Cancelling your subscription</a></li>
+            <li><a href="/help/article/trial-period-faq">Trial period FAQ</a></li>
+          </ul>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="category-card" data-category="troubleshooting">
+          <div class="category-icon">&#128295;</div>
+          <h3 class="category-title">Troubleshooting</h3>
+          <p class="category-desc">Solve common issues and errors</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/camera-offline">Camera offline</a></li>
+            <li><a href="/help/article/no-alerts-received">No alerts received</a></li>
+            <li><a href="/help/article/login-issues">Login issues</a></li>
+            <li><a href="/help/article/slow-dashboard">Slow dashboard</a></li>
+            <li><a href="/help/article/audio-not-working">Audio not working</a></li>
+          </ul>
+        </div>
+
+        <!-- FAQ -->
+        <div class="category-card" data-category="faq">
+          <div class="category-icon">&#10067;</div>
+          <h3 class="category-title">FAQ</h3>
+          <p class="category-desc">Frequently asked questions</p>
+          <ul class="category-articles">
+            <li><a href="/help/article/what-cameras-are-supported">What cameras are supported?</a></li>
+            <li><a href="/help/article/is-my-data-secure">Is my data secure?</a></li>
+            <li><a href="/help/article/can-i-use-multiple-locations">Can I use multiple locations?</a></li>
+            <li><a href="/help/article/what-happens-after-trial">What happens after trial?</a></li>
+            <li><a href="/help/article/do-i-need-internet-for-cameras">Do I need internet for cameras?</a></li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Popular Articles ═══ -->
+  <section class="help-popular">
+    <div class="help-container">
+      <h2 class="section-title">Popular Articles</h2>
+      <div class="popular-list">
+        <a href="/help/article/how-to-connect-first-camera" class="popular-item">
+          <span class="popular-icon">&#128640;</span>
+          <span class="popular-text">How to connect your first camera</span>
+          <span class="popular-arrow">&rarr;</span>
+        </a>
+        <a href="/help/article/setting-up-telegram-alerts" class="popular-item">
+          <span class="popular-icon">&#128276;</span>
+          <span class="popular-text">Setting up Telegram alerts</span>
+          <span class="popular-arrow">&rarr;</span>
+        </a>
+        <a href="/help/article/pricing-plans" class="popular-item">
+          <span class="popular-icon">&#128179;</span>
+          <span class="popular-text">Pricing plans explained</span>
+          <span class="popular-arrow">&rarr;</span>
+        </a>
+        <a href="/help/article/camera-offline" class="popular-item">
+          <span class="popular-icon">&#128295;</span>
+          <span class="popular-text">Camera offline troubleshooting</span>
+          <span class="popular-arrow">&rarr;</span>
+        </a>
+        <a href="/help/article/what-cameras-are-supported" class="popular-item">
+          <span class="popular-icon">&#10067;</span>
+          <span class="popular-text">What cameras are supported?</span>
+          <span class="popular-arrow">&rarr;</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Contact Support ═══ -->
+  <section class="help-contact">
+    <div class="help-container">
+      <h2 class="section-title">Still need help?</h2>
+      <p class="section-subtitle">Our support team is here for you</p>
+      <a href="mailto:support@visionos.com" class="btn btn-primary btn-lg">Contact Support</a>
+    </div>
+  </section>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="help-footer">
+    <div class="help-container">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <div class="footer-logo">Vision OS</div>
+          <p class="footer-desc">AI-powered security for your home & business.</p>
+        </div>
+        <div class="footer-links">
+          <h4>Quick Links</h4>
+          <a href="/">Home</a>
+          <a href="/login">Sign In</a>
+          <a href="/help">Help Center</a>
+        </div>
+        <div class="footer-links">
+          <h4>Legal</h4>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        &copy; 2026 Vision OS. All rights reserved.
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/help.js?v=f798ecb"></script>
+</body>
+</html>

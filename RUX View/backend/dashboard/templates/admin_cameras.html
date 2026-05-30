@@ -5,6 +5,7 @@
   <div class="page-header">
     <h2>Camera Management</h2>
     <div class="header-actions">
+      <button id="add-camera-btn" class="btn btn-primary" onclick="addCamera()">+ Add Camera</button>
       <button id="refresh-btn" class="btn-icon" title="Refresh">
         <span class="icon-refresh">&#x21bb;</span>
       </button>
@@ -206,6 +207,45 @@
   </div>
 </div>
 
+<!-- ── Add Camera Modal ────────────────────────────────────── -->
+<div id="add-camera-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-content modal-sm">
+    <div class="modal-header">
+      <h3>Add Camera</h3>
+      <button class="modal-close" id="add-camera-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="add-cam-name">Camera Name</label>
+        <input type="text" id="add-cam-name" class="form-input" placeholder="e.g. Front Door" required />
+      </div>
+      <div class="form-group">
+        <label for="add-cam-rtsp">RTSP URL</label>
+        <input type="text" id="add-cam-rtsp" class="form-input" placeholder="rtsp://192.168.1.1:8080/h264_stream" />
+      </div>
+      <div class="form-group">
+        <label for="add-cam-location">Location</label>
+        <input type="text" id="add-cam-location" class="form-input" placeholder="e.g. Main Entrance" />
+      </div>
+      <div class="form-group">
+        <label for="add-cam-mode">Mode</label>
+        <select id="add-cam-mode" class="form-select">
+          <option value="indoor">Indoor</option>
+          <option value="outdoor">Outdoor</option>
+          <option value="parking">Parking</option>
+          <option value="shop">Shop</option>
+        </select>
+      </div>
+      <div id="add-cam-error" class="error-message" style="display:none; color:#ff5252; margin-bottom:12px; font-size:13px;"></div>
+      <div id="add-cam-success" class="success-message" style="display:none; color:#00e676; margin-bottom:12px; font-size:13px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="add-cam-cancel" class="btn-secondary">Cancel</button>
+      <button id="add-cam-submit" class="btn-primary">Add Camera</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Delete Confirmation Modal ────────────────────────────── -->
 <div id="confirm-modal" class="modal-overlay" style="display:none;">
   <div class="modal-content modal-sm">
@@ -227,5 +267,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/admin_cameras.js"></script>
+<script src="/static/admin_cameras.js?v=f798ecb"></script>
 {% endblock %}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ article_title }} — Vision OS Help</title>
+  <meta name="description" content="{{ article_description }}">
+  <meta property="og:title" content="{{ article_title }} — Vision OS Help">
+  <meta property="og:description" content="{{ article_description }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://visionos.com/help/article/{{ article_slug }}">
+  <link rel="stylesheet" href="/static/help.css?v=f798ecb">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ═══ Navigation ═══ -->
+  <nav class="help-nav">
+    <div class="nav-container">
+      <a href="/" class="nav-logo">Vision OS</a>
+      <div class="nav-links">
+        <a href="/help" class="nav-link">Help Center</a>
+        <a href="/login" class="nav-link">Sign In</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ Breadcrumb ═══ -->
+  <div class="breadcrumb">
+    <div class="help-container">
+      <a href="/help">Help Center</a>
+      <span class="breadcrumb-sep">/</span>
+      <a href="/help?category={{ category_slug }}">{{ category_name }}</a>
+      <span class="breadcrumb-sep">/</span>
+      <span class="breadcrumb-current">{{ article_title }}</span>
+    </div>
+  </div>
+
+  <!-- ═══ Article Layout ═══ -->
+  <div class="article-layout">
+    <div class="help-container">
+      <div class="article-grid">
+
+        <!-- Sidebar: Table of Contents -->
+        <aside class="article-toc" id="articleToc">
+          <h3 class="toc-title">On this page</h3>
+          <ul class="toc-list" id="tocList">
+            <!-- Auto-generated from headings -->
+          </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="article-content" id="articleContent">
+          <h1>{{ article_title }}</h1>
+          <div class="article-meta">
+            <span class="article-category">{{ category_name }}</span>
+            <span class="article-read-time">{{ read_time }} min read</span>
+          </div>
+
+          <div class="article-body">
+            {{ article_body | safe }}
+          </div>
+
+          <!-- Feedback -->
+          <div class="article-feedback">
+            <p class="feedback-question">Was this article helpful?</p>
+            <div class="feedback-buttons">
+              <button class="feedback-btn feedback-yes" data-feedback="yes" aria-label="Yes, helpful">
+                &#128077; Yes
+              </button>
+              <button class="feedback-btn feedback-no" data-feedback="no" aria-label="No, not helpful">
+                &#128078; No
+              </button>
+            </div>
+            <p class="feedback-thanks" id="feedbackThanks" style="display: none;">
+              Thank you for your feedback!
+            </p>
+          </div>
+        </main>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Related Articles ═══ -->
+  <section class="related-articles">
+    <div class="help-container">
+      <h2 class="section-title">Related Articles</h2>
+      <div class="related-grid">
+        {% for article in related_articles %}
+        <a href="/help/article/{{ article.slug }}" class="related-card">
+          <div class="related-icon">{{ article.icon }}</div>
+          <h3 class="related-title">{{ article.title }}</h3>
+          <p class="related-desc">{{ article.description }}</p>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="help-footer">
+    <div class="help-container">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <div class="footer-logo">Vision OS</div>
+          <p class="footer-desc">AI-powered security for your home & business.</p>
+        </div>
+        <div class="footer-links">
+          <h4>Quick Links</h4>
+          <a href="/">Home</a>
+          <a href="/login">Sign In</a>
+          <a href="/help">Help Center</a>
+        </div>
+        <div class="footer-links">
+          <h4>Legal</h4>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        &copy; 2026 Vision OS. All rights reserved.
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/help.js?v=f798ecb"></script>
+</body>
+</html>

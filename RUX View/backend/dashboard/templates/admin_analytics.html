@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Analytics — Vision OS</title>
+  <meta name="description" content="Vision OS Admin Analytics Dashboard — Monitor revenue, user growth, camera adoption, and event trends.">
+  <link rel="stylesheet" href="/static/admin_analytics.css?v=f798ecb">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ═══ Navigation ═══ -->
+  <nav class="analytics-nav">
+    <div class="nav-container">
+      <a href="/admin" class="nav-logo">Vision OS Admin</a>
+      <div class="nav-links">
+        <a href="/admin" class="nav-link">Dashboard</a>
+        <a href="/admin/cameras" class="nav-link">Cameras</a>
+        <a href="/admin/analytics" class="nav-link active">Analytics</a>
+        <a href="/logout" class="nav-link">Logout</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ Header ═══ -->
+  <header class="analytics-header">
+    <div class="header-container">
+      <div class="header-left">
+        <h1 class="header-title">Analytics Dashboard</h1>
+        <p class="header-subtitle">Real-time metrics and insights for Vision OS</p>
+      </div>
+      <div class="header-right">
+        <div class="date-range-selector">
+          <button class="date-btn" data-range="7d">7D</button>
+          <button class="date-btn active" data-range="30d">30D</button>
+          <button class="date-btn" data-range="90d">90D</button>
+          <button class="date-btn" data-range="custom">Custom</button>
+        </div>
+        <div class="export-buttons">
+          <button class="btn btn-export" id="exportCsv">&#128196; CSV</button>
+          <button class="btn btn-export" id="exportPdf">&#128196; PDF</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ Summary Cards ═══ -->
+  <section class="summary-cards">
+    <div class="cards-grid">
+      <div class="summary-card">
+        <div class="card-icon users-icon">&#128101;</div>
+        <div class="card-info">
+          <div class="card-label">Total Users</div>
+          <div class="card-value" id="totalUsers">--</div>
+          <div class="card-change" id="usersChange">+0%</div>
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="card-icon cameras-icon">&#128247;</div>
+        <div class="card-info">
+          <div class="card-label">Active Cameras</div>
+          <div class="card-value" id="activeCameras">--</div>
+          <div class="card-change" id="camerasChange">+0%</div>
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="card-icon revenue-icon">&#128176;</div>
+        <div class="card-info">
+          <div class="card-label">MRR (BDT)</div>
+          <div class="card-value" id="mrr">--</div>
+          <div class="card-change" id="mrrChange">+0%</div>
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="card-icon conversion-icon">&#128200;</div>
+        <div class="card-info">
+          <div class="card-label">Trial Conversion</div>
+          <div class="card-value" id="trialConversion">--%</div>
+          <div class="card-change" id="conversionChange">+0%</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Charts Row 1 ═══ -->
+  <section class="charts-section">
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h2 class="chart-title">Revenue Over Time</h2>
+        <div class="chart-container">
+          <canvas id="revenueChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2 class="chart-title">User Growth</h2>
+        <div class="chart-container">
+          <canvas id="userGrowthChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Charts Row 2 ═══ -->
+  <section class="charts-section">
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h2 class="chart-title">Camera Adoption</h2>
+        <div class="chart-container">
+          <canvas id="cameraAdoptionChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h2 class="chart-title">Event Trends</h2>
+        <div class="chart-container">
+          <canvas id="eventTrendsChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Top Users Table ═══ -->
+  <section class="table-section">
+    <div class="table-card">
+      <div class="table-header">
+        <h2 class="table-title">Top Users</h2>
+        <div class="table-tabs">
+          <button class="tab-btn active" data-sort="events">By Events</button>
+          <button class="tab-btn" data-sort="revenue">By Revenue</button>
+          <button class="tab-btn" data-sort="cameras">By Cameras</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table" id="topUsersTable">
+          <thead>
+            <tr>
+              <th data-sort="email">Email &#9650;&#9660;</th>
+              <th data-sort="tier">Tier</th>
+              <th data-sort="cameras">Cameras</th>
+              <th data-sort="events">Events (30d)</th>
+              <th data-sort="revenue">Revenue</th>
+              <th data-sort="status">Status</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+      <div class="table-pagination" id="tablePagination">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="analytics-footer">
+    <div class="footer-container">
+      <p>&copy; 2026 Vision OS. Admin Panel.</p>
+    </div>
+  </footer>
+
+  <script src="/static/admin_analytics.js?v=f798ecb"></script>
+</body>
+</html>

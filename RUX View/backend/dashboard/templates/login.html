@@ -4,7 +4,48 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vision OS — Login</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=f798ecb">
+  <style>
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.375rem; color: #1e293b; }
+    .form-input {
+      width: 100%;
+      padding: 0.625rem 0.75rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 0.9375rem;
+      color: #1e293b;
+      background: #fff;
+      transition: border-color 0.2s;
+      box-sizing: border-box;
+    }
+    .form-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .btn-full { width: 100%; text-align: center; display: inline-block; box-sizing: border-box; }
+    .btn-google {
+      width: 100%;
+      padding: 0.625rem 1rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fff;
+      color: #1e293b;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-sizing: border-box;
+    }
+    .btn-google:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .dev-mode-badge {
+      text-align: center;
+      margin-top: 1rem;
+      padding: 0.5rem;
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      color: #92400e;
+    }
+  </style>
 </head>
 <body class="login-body">
   <div class="login-container">
@@ -12,22 +53,26 @@
       <h1 class="login-logo">Vision OS</h1>
       <p class="login-subtitle">AI-Powered CCTV Intelligence</p>
       <div class="login-form">
-        <div class="form-group">
-          <label for="email">Email</label>
-          <input type="email" id="email" placeholder="Enter your email" class="form-input">
-        </div>
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input type="password" id="password" placeholder="Enter your password" class="form-input">
-        </div>
-        <button onclick="loginWithEmail()" class="btn btn-primary btn-full">Sign In</button>
+        <form method="POST" action="/login">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" name="email" id="email" placeholder="Enter your email" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" name="password" id="password" placeholder="Enter your password" class="form-input" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+        </form>
         <div class="login-divider"><span>or</span></div>
-        <button onclick="loginWithGoogle()" class="btn btn-google btn-full">Sign in with Google</button>
-        <p class="login-error" id="login-error"></p>
+        <button onclick="window.location.href='/'" class="btn-google btn-full">Sign in with Google</button>
+        <p class="login-error" id="login-error">{% if error %}{{ error }}{% endif %}</p>
+        <div class="dev-mode-badge" id="dev-badge">
+          🔧 Development Mode — Click "Sign In" to enter the dashboard
+        </div>
       </div>
-      <p class="login-footer">Powered by Vision OS &copy; 2024</p>
+      <p class="login-footer">Powered by Vision OS &copy; 2026</p>
     </div>
   </div>
-  <script src="/static/app.js"></script>
 </body>
 </html>
