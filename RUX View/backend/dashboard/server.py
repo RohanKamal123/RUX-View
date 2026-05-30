@@ -1,434 +1,172 @@
 """
-server.py — Vision OS Dashboard (FastAPI + Jinja2 + Firebase Auth).
+server.py — Vision OS Dashboard Server (PostgreSQL Backend).
 
-Mobile-first responsive dashboard with:
-- Event feed with auto-refresh every 30s
-- Per-camera event pages
-- Person profile pages (household/business tier)
-- Settings and payment pages
-- Firebase Auth for login
-- Tier-gated premium pages
+FastAPI application with:
+- Layer 1: MEGA.nz — DISABLED (Windows file-locking bug)
+- Layer 2: Neon PostgreSQL + pgvector for structured data & vectors
+- Firebase Auth for production authentication
+- Jinja2 templates for dashboard pages
+- CORS middleware, security headers, rate limiting
+
+Stack: FastAPI + Jinja2 + PostgresCRUD + Firebase Auth
 """
 
+import json
 import logging
-from datetime import datetime, date
-from typing import Optional
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+
+from backend.config import settings
+from backend.storage.pg_crud import PostgresCRUD
+from backend.storage.hybrid_crud import HybridCRUD
+from backend.storage.engine import close_db, init_db
+from backend.dashboard.auth import init_firebase
+
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Vision OS Dashboard")
+# ── Global instances ────────────────────────────────────────────
 
-# Mount static files
+pg_crud: PostgresCRUD = None  # type: ignore
+hybrid_crud: HybridCRUD = None  # type: ignore
+
+
+# ── Application Lifespan ────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler.
+
+    On startup:
+      1. Initialize Firebase Auth (production) or dev mode
+      2. Initialize PostgreSQL CRUD (Layer 2 — structured data)
+    On shutdown: cleanup resources.
+    """
+    logger.info("Starting Vision OS Dashboard (PostgreSQL Backend)...")
+
+    # ── 1. Initialize Firebase Auth ────────────────────────────
+    try:
+        init_firebase()
+        logger.info("Firebase Auth initialized")
+    except Exception as e:
+        logger.error("Firebase Auth initialization failed: %s", e)
+        if settings.environment == "production":
+            raise
+
+    # ── 2. Initialize PostgreSQL CRUD (Layer 2) ────────────────
+    global pg_crud
+    try:
+        pg_crud = PostgresCRUD()
+        app.state.pg_crud = pg_crud
+        logger.info("PostgreSQL CRUD initialized")
+
+        # Auto-create tables if they don't exist (e.g., first deploy)
+        await init_db()
+        logger.info("Database tables created / verified")
+    except Exception as e:
+        logger.error("Failed to initialize PostgreSQL CRUD: %s", e)
+        logger.warning("Running without PostgreSQL — vector search unavailable")
+
+    # ── 3. Create HybridCRUD (PostgreSQL only, MEGA.nz disabled) ──
+    global hybrid_crud
+    hybrid_crud = HybridCRUD(pg_crud=pg_crud)
+    app.state.hybrid_crud = hybrid_crud
+
+    import backend.dashboard.routes as dashboard_routes
+    dashboard_routes.hybrid_crud = hybrid_crud
+
+    import backend.api.cameras as cameras_api
+    cameras_api.hybrid_crud = hybrid_crud
+
+    import backend.api.users as users_api
+    users_api.hybrid_crud = hybrid_crud
+
+    import backend.api.triggers as triggers_api
+    triggers_api.hybrid_crud = hybrid_crud
+
+    import backend.api.queries as queries_api
+    queries_api.hybrid_crud = hybrid_crud
+
+    logger.info("HybridCRUD initialized (PG: %s)",
+                "ok" if pg_crud else "unavailable")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down Vision OS Dashboard...")
+    await close_db()
+
+
+# ── FastAPI Application ─────────────────────────────────────────
+
+app = FastAPI(
+    title="Vision OS Dashboard",
+    description="AI-Powered CCTV Intelligence for Bangladesh",
+    version="11.4.0",
+    lifespan=lifespan,
+)
+
+# ── Middleware ──────────────────────────────────────────────────
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Static Files ────────────────────────────────────────────────
+
 app.mount("/static", StaticFiles(directory="backend/dashboard/static"), name="static")
 
-# Jinja2 templates
+# ── Templates ───────────────────────────────────────────────────
+
 templates = Jinja2Templates(directory="backend/dashboard/templates")
 
 
-# ── Firebase Auth Dependency ────────────────────────────────────
+# ── Error Handlers ──────────────────────────────────────────────
 
 
-async def get_current_user(request: Request) -> dict:
-    """Get current user from Firebase Auth token in session/cookie.
-
-    For development/testing, returns a mock user.
-    In production, validates Firebase ID token from Authorization header.
+@app.exception_handler(Exception)
+async def generic_error_handler(request: Request, exc: Exception):
+    """Handle storage errors gracefully.
 
     Args:
         request: FastAPI request object.
+        exc: The exception.
 
     Returns:
-        User dict with user_id, email, tier, etc.
-
-    Raises:
-        HTTPException 401 if not authenticated.
+        JSON response with error details.
     """
-    # In production, extract and verify Firebase ID token
-    # For now, check session or header
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        # TODO: Verify Firebase token
-        # firebase_user = await verify_firebase_token(token)
-        pass
-
-    # Development mock user
-    user = {
-        "user_id": "user_001",
-        "email": "test@example.com",
-        "tier": "household",
-        "telegram_chat_id": "123456",
-        "name": "Test User",
-    }
-
-    # Check for tier override in query params (for testing)
-    tier_override = request.query_params.get("tier")
-    if tier_override:
-        user["tier"] = tier_override
-
-    return user
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "code": "STORAGE_ERROR"},
+    )
 
 
-def require_tier(min_tier: str):
-    """Factory for tier requirement dependency.
-
-    Tier hierarchy: free < household < business
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    """Handle 404 errors with a JSON response.
 
     Args:
-        min_tier: Minimum required tier.
+        request: FastAPI request object.
+        exc: The exception.
 
     Returns:
-        Dependency function that checks user tier.
+        JSON response with 404 error.
     """
-    tier_order = {"free": 0, "household": 1, "business": 2}
-    required_tier = min_tier.lower()
-
-    async def _check_tier(user: dict = Depends(get_current_user)) -> dict:
-        """Check if user meets tier requirement.
-
-        Args:
-            user: Current user dict.
-
-        Returns:
-            User dict if authorized.
-
-        Raises:
-            HTTPException 403 if tier too low.
-        """
-        user_tier = user.get("tier", "free").lower()
-
-        if tier_order.get(user_tier, 0) < tier_order.get(required_tier, 0):
-            raise HTTPException(
-                status_code=403,
-                detail=f"This page requires {min_tier} tier or above. "
-                       f"Your current tier: {user.get('tier', 'free')}",
-            )
-        return user
-
-    return _check_tier
-
-
-# ── Mock Data Helpers ───────────────────────────────────────────
-
-
-def _get_mock_cameras() -> list[dict]:
-    """Get mock camera list for development."""
-    return [
-        {"id": "cam_001", "name": "Front Gate", "mode": "outdoor", "status": "online"},
-        {"id": "cam_002", "name": "Back Door", "mode": "outdoor", "status": "online"},
-        {"id": "cam_003", "name": "Living Room", "mode": "indoor", "status": "online"},
-        {"id": "cam_004", "name": "Parking Lot", "mode": "parking", "status": "offline"},
-        {"id": "cam_005", "name": "Shop Floor", "mode": "shop", "status": "online"},
-    ]
-
-
-def _get_mock_events(camera_id: Optional[str] = None,
-                     threat_level: Optional[str] = None,
-                     limit: int = 50) -> list[dict]:
-    """Get mock events for development."""
-    all_events = [
-        {
-            "id": "evt_001",
-            "camera_id": "cam_001",
-            "camera_name": "Front Gate",
-            "threat_level": "HIGH",
-            "alert_message": "Unknown person at front gate after hours",
-            "timestamp_start": datetime(2024, 6, 15, 22, 30, 0),
-            "duration_sec": 45.0,
-            "thumbnail_url": None,
-            "person_ids": ["PERSON_A1B2"],
-            "mode": "outdoor",
-        },
-        {
-            "id": "evt_002",
-            "camera_id": "cam_003",
-            "camera_name": "Living Room",
-            "threat_level": "LOW",
-            "alert_message": "Motion detected in living room",
-            "timestamp_start": datetime(2024, 6, 15, 18, 15, 0),
-            "duration_sec": 12.0,
-            "thumbnail_url": None,
-            "person_ids": [],
-            "mode": "indoor",
-        },
-        {
-            "id": "evt_003",
-            "camera_id": "cam_001",
-            "camera_name": "Front Gate",
-            "threat_level": "MEDIUM",
-            "alert_message": "Vehicle stopped at gate",
-            "timestamp_start": datetime(2024, 6, 15, 14, 0, 0),
-            "duration_sec": 30.0,
-            "thumbnail_url": None,
-            "person_ids": [],
-            "mode": "outdoor",
-        },
-        {
-            "id": "evt_004",
-            "camera_id": "cam_002",
-            "camera_name": "Back Door",
-            "threat_level": "EMERGENCY",
-            "alert_message": "Forced entry detected at back door",
-            "timestamp_start": datetime(2024, 6, 15, 3, 0, 0),
-            "duration_sec": 60.0,
-            "thumbnail_url": None,
-            "person_ids": ["PERSON_C3D4", "PERSON_E5F6"],
-            "mode": "outdoor",
-        },
-        {
-            "id": "evt_005",
-            "camera_id": "cam_005",
-            "camera_name": "Shop Floor",
-            "threat_level": "LOW",
-            "alert_message": "Customer entered shop",
-            "timestamp_start": datetime(2024, 6, 15, 10, 30, 0),
-            "duration_sec": 180.0,
-            "thumbnail_url": None,
-            "person_ids": ["PERSON_G7H8"],
-            "mode": "shop",
-        },
-        {
-            "id": "evt_006",
-            "camera_id": "cam_004",
-            "camera_name": "Parking Lot",
-            "threat_level": "MEDIUM",
-            "alert_message": "Person loitering near vehicles",
-            "timestamp_start": datetime(2024, 6, 15, 23, 0, 0),
-            "duration_sec": 120.0,
-            "thumbnail_url": None,
-            "person_ids": ["PERSON_I9J0"],
-            "mode": "parking",
-        },
-    ]
-
-    # Filter by camera_id
-    if camera_id:
-        all_events = [e for e in all_events if e["camera_id"] == camera_id]
-
-    # Filter by threat_level
-    if threat_level:
-        all_events = [e for e in all_events if e["threat_level"] == threat_level.upper()]
-
-    # Sort by timestamp descending
-    all_events.sort(key=lambda e: e["timestamp_start"], reverse=True)
-
-    return all_events[:limit]
-
-
-def _get_mock_person_sightings(person_uid: str) -> list[dict]:
-    """Get mock person sightings for development."""
-    return [
-        {
-            "event_id": "evt_001",
-            "camera_name": "Front Gate",
-            "timestamp": datetime(2024, 6, 15, 22, 30, 0),
-            "threat_level": "HIGH",
-            "thumbnail_url": None,
-            "appearance": {
-                "gender": "male",
-                "clothing": "dark hoodie, jeans",
-                "hand_objects": "none",
-                "action": "walking",
-            },
-        },
-        {
-            "event_id": "evt_003",
-            "camera_name": "Front Gate",
-            "timestamp": datetime(2024, 6, 15, 14, 0, 0),
-            "threat_level": "MEDIUM",
-            "thumbnail_url": None,
-            "appearance": {
-                "gender": "male",
-                "clothing": "red t-shirt, shorts",
-                "hand_objects": "phone",
-                "action": "standing",
-            },
-        },
-    ]
-
-
-# ── Routes ──────────────────────────────────────────────────────
-
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    """Login page with Firebase Auth UI."""
-    return templates.TemplateResponse(
-        "login.html",
-        {"request": request},
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Not found", "code": "NOT_FOUND"},
     )
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request, user: dict = Depends(get_current_user)):
-    """Main event feed page.
-
-    Shows all events across all user's cameras.
-    Filterable by camera, threat level, date range.
-    Auto-refreshes every 30s via JS.
-    """
-    cameras = _get_mock_cameras()
-    events = _get_mock_events()
-
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "user": user,
-            "cameras": cameras,
-            "events": events,
-            "active_page": "index",
-        },
-    )
-
-
-@app.get("/camera/{camera_id}", response_class=HTMLResponse)
-async def camera_page(request: Request, camera_id: str,
-                      user: dict = Depends(get_current_user)):
-    """Per-camera event list page.
-
-    Shows events for a single camera.
-    """
-    cameras = _get_mock_cameras()
-    camera = next((c for c in cameras if c["id"] == camera_id), None)
-    if not camera:
-        raise HTTPException(status_code=404, detail="Camera not found")
-
-    events = _get_mock_events(camera_id=camera_id)
-
-    return templates.TemplateResponse(
-        "camera.html",
-        {
-            "request": request,
-            "user": user,
-            "camera": camera,
-            "events": events,
-            "active_page": "camera",
-        },
-    )
-
-
-@app.get("/person/{person_uid}", response_class=HTMLResponse)
-async def person_page(request: Request, person_uid: str,
-                      user: dict = Depends(require_tier("household"))):
-    """Person profile page.
-
-    Shows sightings timeline, appearance history, threat flags.
-    Requires household tier or above.
-    """
-    sightings = _get_mock_person_sightings(person_uid)
-
-    # Calculate threat flag
-    threat_flags = [s for s in sightings if s["threat_level"] in ("HIGH", "EMERGENCY")]
-    threat_flag = "HIGH" if threat_flags else "LOW"
-
-    return templates.TemplateResponse(
-        "person.html",
-        {
-            "request": request,
-            "user": user,
-            "person_uid": person_uid,
-            "sightings": sightings,
-            "threat_flag": threat_flag,
-            "active_page": "person",
-        },
-    )
-
-
-@app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request,
-                        user: dict = Depends(get_current_user)):
-    """Settings page.
-
-    Camera config, ignore zones, account settings.
-    """
-    cameras = _get_mock_cameras()
-
-    return templates.TemplateResponse(
-        "settings.html",
-        {
-            "request": request,
-            "user": user,
-            "cameras": cameras,
-            "active_page": "settings",
-        },
-    )
-
-
-@app.get("/payment", response_class=HTMLResponse)
-async def payment_page(request: Request,
-                       user: dict = Depends(get_current_user)):
-    """Payment info page.
-
-    Shows bKash/Nagad number for manual payment.
-    """
-    return templates.TemplateResponse(
-        "payment.html",
-        {
-            "request": request,
-            "user": user,
-            "active_page": "payment",
-        },
-    )
-
-
-# ── JSON API Endpoints ──────────────────────────────────────────
-
-
-@app.get("/api/events")
-async def api_events(camera_id: Optional[str] = Query(None),
-                     threat_level: Optional[str] = Query(None),
-                     limit: int = Query(50),
-                     user: dict = Depends(get_current_user)):
-    """JSON endpoint for event feed auto-refresh.
-
-    Args:
-        camera_id: Filter by camera ID (optional).
-        threat_level: Filter by threat level (optional).
-        limit: Max events to return (default 50).
-        user: Current user (from auth).
-
-    Returns:
-        List of event dicts with ISO-formatted timestamps.
-    """
-    events = _get_mock_events(camera_id=camera_id, threat_level=threat_level, limit=limit)
-
-    # Convert datetimes to ISO strings for JSON serialization
-    serialized = []
-    for event in events:
-        e = dict(event)
-        e["timestamp_start"] = e["timestamp_start"].isoformat()
-        serialized.append(e)
-
-    return {"events": serialized, "count": len(serialized)}
-
-
-@app.get("/api/person/{person_uid}/sightings")
-async def api_person_sightings(person_uid: str,
-                               user: dict = Depends(get_current_user)):
-    """JSON endpoint for person sightings timeline.
-
-    Args:
-        person_uid: Person UID to get sightings for.
-        user: Current user (from auth).
-
-    Returns:
-        List of sighting dicts with ISO-formatted timestamps.
-    """
-    sightings = _get_mock_person_sightings(person_uid)
-
-    serialized = []
-    for sighting in sightings:
-        s = dict(sighting)
-        s["timestamp"] = s["timestamp"].isoformat()
-        serialized.append(s)
-
-    return {"person_uid": person_uid, "sightings": serialized, "count": len(serialized)}
 
 
 # ── Health Check ────────────────────────────────────────────────
@@ -436,5 +174,98 @@ async def api_person_sightings(person_uid: str,
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok", "service": "Vision OS Dashboard"}
+    """Health check endpoint.
+
+    Returns:
+        Dict with status, storage type, and timestamp.
+    """
+    # Check PostgreSQL health
+    pg_status = "unavailable"
+    if pg_crud is not None:
+        try:
+            health = await pg_crud.check_health()
+            pg_status = health.get("status", "error")
+        except Exception:
+            pg_status = "error"
+
+    return {
+        "status": "ok",
+        "storage": {
+            "layer1_mega": "disabled",
+            "layer2_postgres": pg_status,
+        },
+        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+    }
+
+
+# ── WebSocket Endpoint ──────────────────────────────────────────
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for client agent connections.
+
+    Accepts the connection, waits for an auth message
+    ``{"type": "auth", "camera_id": "...", "token": "..."}``,
+    then relays heartbeats and commands.
+
+    In development mode, any non-empty token is accepted.
+    """
+    await websocket.accept()
+    camera_id = "unknown"
+    try:
+        # Wait for auth message
+        raw = await websocket.receive_text()
+        msg = json.loads(raw)
+        if msg.get("type") == "auth":
+            camera_id = msg.get("camera_id", "unknown")
+            token = msg.get("token", "")
+            if not token:
+                await websocket.send_json({"type": "error", "message": "Missing token"})
+                await websocket.close(code=4001)
+                return
+            logger.info("WebSocket client authenticated: camera=%s", camera_id)
+            await websocket.send_json({"type": "auth_ok", "camera_id": camera_id})
+        else:
+            await websocket.send_json({"type": "error", "message": "Expected auth message"})
+            await websocket.close(code=4001)
+            return
+
+        # Keep connection alive — handle heartbeats and commands
+        while True:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            msg_type = msg.get("type", "")
+
+            if msg_type == "heartbeat":
+                await websocket.send_json({"type": "pong"})
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+            else:
+                logger.debug("Unhandled WS message from %s: %s", camera_id, msg_type)
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected: camera=%s", camera_id)
+    except Exception:
+        logger.exception("WebSocket error (camera=%s)", camera_id)
+
+
+# ── Include Routers ─────────────────────────────────────────────
+
+from backend.dashboard.routes import router as dashboard_router
+from backend.api.cameras import router as cameras_router
+from backend.api.users import router as users_router
+from backend.api.triggers import router as triggers_router
+from backend.api.queries import router as queries_router
+from backend.api.data_export import router as data_export_router
+from backend.api.analytics import router as analytics_router
+
+app.include_router(dashboard_router)
+app.include_router(cameras_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
+app.include_router(triggers_router, prefix="/api")
+app.include_router(queries_router, prefix="/api")
+app.include_router(data_export_router)
+app.include_router(analytics_router)
+
+
