@@ -6,8 +6,9 @@ FastAPI application with:
 - Firebase Auth for production authentication
 - Jinja2 templates for dashboard pages
 - CORS middleware, security headers, rate limiting
+- PipelineManager for AI-powered camera processing
 
-Stack: FastAPI + Jinja2 + PostgresCRUD + Firebase Auth
+Stack: FastAPI + Jinja2 + PostgresCRUD + Firebase Auth + PipelineManager
 """
 
 import json
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 pg_crud: PostgresCRUD = None  # type: ignore
 hybrid_crud: HybridCRUD = None  # type: ignore
+pipeline_manager: "PipelineManager" = None  # type: ignore
 
 
 # ── Application Lifespan ────────────────────────────────────────
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI):
     On startup:
       1. Initialize Firebase Auth (production) or dev mode
       2. Initialize PostgreSQL CRUD (Layer 2 — structured data)
+      3. Initialize PipelineManager for AI camera processing
     On shutdown: cleanup resources.
     """
     logger.info("Starting Vision OS Dashboard (PostgreSQL Backend)...")
@@ -114,10 +117,30 @@ async def lifespan(app: FastAPI):
     logger.info("HybridCRUD initialized (PG: %s)",
                 "ok" if pg_crud else "unavailable")
 
+    # ── 4. Initialize PipelineManager ──────────────────────────
+    global pipeline_manager
+    try:
+        from backend.core.pipeline_manager import PipelineManager
+        pipeline_manager = PipelineManager()
+        await pipeline_manager.initialize()
+        app.state.pipeline_manager = pipeline_manager
+
+        # Wire into triggers API so frame/audio triggers feed the pipeline
+        triggers_api.pipeline_manager = pipeline_manager
+
+        logger.info("PipelineManager initialized — AI pipeline ready")
+    except Exception as e:
+        logger.error("PipelineManager initialization failed: %s", e)
+        logger.warning("Running without AI pipeline — triggers will be stored only")
+        pipeline_manager = None
+        app.state.pipeline_manager = None
+
     yield
 
     # Shutdown
     logger.info("Shutting down Vision OS Dashboard...")
+    if pipeline_manager is not None:
+        await pipeline_manager.shutdown()
     await close_db()
 
 
@@ -206,10 +229,19 @@ async def health_check():
         except Exception:
             pg_status = "error"
 
+    # Check pipeline manager health
+    pipeline_status = "unavailable"
+    if pipeline_manager is not None:
+        pipeline_status = "ok" if pipeline_manager.is_initialized else "not_initialized"
+
     return {
         "status": "ok",
         "storage": {
             "layer2_postgres": pg_status,
+        },
+        "pipeline": {
+            "status": pipeline_status,
+            "active_pipelines": pipeline_manager.active_pipelines if pipeline_manager else 0,
         },
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
     }
@@ -284,7 +316,3 @@ app.include_router(users_router, prefix="/api")
 app.include_router(triggers_router, prefix="/api")
 app.include_router(queries_router, prefix="/api")
 app.include_router(analytics_router)
-
-
-
-

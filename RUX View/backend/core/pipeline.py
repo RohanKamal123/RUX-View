@@ -115,11 +115,16 @@ class CameraPipeline:
             from backend.alerts.telegram_client import TelegramClient
             from backend.alerts.voice_note import VoiceNoteGenerator
             from backend.alerts.sms_client import SMSClient
+            from backend.config import settings
 
-            # These would be configured from user settings
-            telegram = TelegramClient(bot_token="")  # Token from config
+            # Configure from environment settings
+            telegram = TelegramClient(bot_token=settings.telegram_bot_token)
             voice = VoiceNoteGenerator()
-            sms = SMSClient(api_key="", api_secret="", sender_id="VisionOS")
+            sms = SMSClient(
+                api_key=settings.ssl_wireless_api_key,
+                api_secret=settings.ssl_wireless_api_secret,
+                sender_id=settings.ssl_wireless_sid or "VisionOS",
+            )
 
             self._alert_router = AlertRouter(
                 telegram_client=telegram,
