@@ -20,6 +20,10 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any, Optional
 
+from sqlalchemy import select
+from backend.storage.database import Event as EventModel
+from backend.storage.engine import create_session
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,6 +271,10 @@ class HybridCRUD:
                 import uuid
                 event_id = f"EVT_{uuid.uuid4().hex[:12].upper()}"
                 now = datetime.utcnow()
+                # Store image_base64 from details into gemini_decision for persistence
+                gemini_decision = None
+                if details and "image_base64" in details:
+                    gemini_decision = {"image_base64": details["image_base64"]}
                 pg_evt = await self._pg.create_event(
                     user_id=user_id,
                     location_id="default",
@@ -274,6 +282,7 @@ class HybridCRUD:
                     incident_id=event_id,
                     timestamp_start=now,
                     threat_level=details.get("threat_level", "LOW") if details else "LOW",
+                    gemini_decision=gemini_decision,
                 )
                 return Event(
                     event_id=event_id,
@@ -311,6 +320,62 @@ class HybridCRUD:
                 logger.error("PG events list failed: %s", e)
 
         return []
+
+    async def get_event_by_id(self, event_id: str, user_id: str) -> Optional[Event]:
+        """Get a single event by its event_id (incident_id) and user_id."""
+        if self._pg_available:
+            try:
+                pg_event = await self._pg.get_event_by_incident_id(event_id, user_id)
+                if pg_event is None:
+                    return None
+                return Event(
+                    event_id=str(pg_event.id),
+                    user_id=pg_event.user_id,
+                    camera_id=pg_event.camera_id,
+                    event_type=pg_event.incident_id or "motion",
+                    confidence=0.0,
+                    threat_level=pg_event.threat_level or "LOW",
+                    details={
+                        "image_base64": pg_event.gemini_decision.get("image_base64", "") if pg_event.gemini_decision else "",
+                    },
+                    created_at=str(pg_event.timestamp_start) if pg_event.timestamp_start else "",
+                )
+            except Exception as e:
+                logger.error("PG get_event_by_id failed: %s", e)
+        return None
+
+    async def update_event(
+        self,
+        event_id: str,
+        threat_level: Optional[str] = None,
+        alert_message: Optional[str] = None,
+        person_ids: Optional[list] = None,
+    ) -> bool:
+        """Update an event's pipeline results."""
+        if self._pg_available:
+            try:
+                # Find the event by incident_id only (no user_id filter)
+                pg_event = await self._pg.get_event_by_incident_id(event_id, "")
+                if pg_event is None:
+                    # Fallback: try looking up without user_id filter
+                    async with create_session() as session:
+                        result = await session.execute(
+                            select(EventModel).where(EventModel.incident_id == event_id)
+                        )
+                        pg_event = result.scalar_one_or_none()
+                if pg_event is None:
+                    logger.warning("Event %s not found for update", event_id)
+                    return False
+                await self._pg.update_event(
+                    event_id=pg_event.id,
+                    threat_level=threat_level,
+                    alert_sent=bool(alert_message) if alert_message else None,
+                )
+                logger.info("Updated event %s: threat=%s, alert=%s", event_id, threat_level, alert_message)
+                return True
+            except Exception as e:
+                logger.error("PG update_event failed: %s", e)
+        return False
 
     async def search_events(self, user_id: str, query: str) -> list[Event]:
         """Search events by query string."""
