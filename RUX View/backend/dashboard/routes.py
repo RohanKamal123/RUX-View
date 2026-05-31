@@ -211,18 +211,17 @@ async def camera_management_page(
 
     try:
         cameras = await crud.get_user_cameras(user_id)
-        quota = await crud.get_camera_quota(user_id)
 
         return templates.TemplateResponse(
-            "admin_cameras.html",
+            "cameras.html",
             {
                 "request": request,
                 "user": user,
                 "cameras": cameras,
-                "quota": quota,
                 "active_page": "cameras",
             },
         )
+
     except Exception as e:
         logger.error("Camera page error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to load cameras")
@@ -381,6 +380,63 @@ async def admin_panel(
 
 
 # ── JSON API Endpoints for Dashboard ────────────────────────────
+
+
+@router.get("/api/events")
+async def get_events_api(
+    limit: int = Query(50, description="Maximum number of events"),
+    camera_id: Optional[str] = Query(None, description="Filter by camera ID"),
+    threat_level: Optional[str] = Query(None, description="Filter by threat level"),
+    user: dict = Depends(get_current_user),
+    crud: HybridCRUD = Depends(get_crud),
+):
+    """JSON endpoint for the event feed page (called by app.js auto-refresh).
+
+    Supports filtering by camera_id, threat_level, and limit.
+    Returns events with thumbnail URLs, person IDs, and alert messages.
+
+    Args:
+        limit: Max events to return.
+        camera_id: Optional camera filter.
+        threat_level: Optional threat level filter.
+        user: Authenticated user dict from Firebase.
+
+    Returns:
+        Dict with events list and total count.
+    """
+    user_id = user.get("uid", "anonymous")
+
+    try:
+        events = await crud.get_user_events(user_id, limit=limit)
+
+        if camera_id:
+            events = [e for e in events if e.camera_id == camera_id]
+        if threat_level:
+            events = [e for e in events if getattr(e, 'threat_level', None) == threat_level]
+
+        return {
+            "events": [{
+                "event_id": e.event_id,
+                "camera_id": e.camera_id,
+                "camera_name": e.camera_id,
+                "event_type": e.event_type,
+                "threat_level": getattr(e, 'threat_level', 'LOW'),
+                "confidence": e.confidence,
+                "alert_message": getattr(e, 'alert_message', 'Motion detected'),
+                "timestamp_start": e.created_at,
+                "duration_sec": 0,
+                "person_ids": getattr(e, 'person_ids', []),
+                "thumbnail_url": (
+                    f"/api/triggers/image/{e.event_id}"
+                    if hasattr(e, 'details') and e.details and e.details.get('image_base64')
+                    else "/static/placeholder.jpg"
+                ),
+            } for e in events],
+            "total": len(events),
+        }
+    except Exception as exc:
+        logger.error("Failed to fetch events: %s", exc)
+        return {"events": [], "total": 0, "error": str(exc)}
 
 
 @router.get("/api/dashboard/stats")
