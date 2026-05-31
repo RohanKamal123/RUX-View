@@ -3,7 +3,7 @@
 Coordinates all client modules:
 - Camera: RTSP reader, frame selector, motion detector
 - Audio: Audio capture, YAMNet sound classification
-- Transport: WebSocket client, HTTPS trigger sender, SMS fallback
+- Transport: WebSocket client, HTTPS trigger sender
 - Buffer: SQLite-backed offline queue
 
 Trigger-only architecture (D005) — no continuous streaming.
@@ -11,25 +11,41 @@ All connections are outbound only (solves NAT — D009).
 """
 
 import asyncio
+import base64
 import logging
+import os
+import sys
+import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
-from connect.config import AppConfig, load_config, save_config
+from connect.config import AppConfig, load_config
 from connect.camera.rtsp_reader import RTSPReader
 from connect.camera.frame_selector import select_best_frame
 from connect.camera.motion_detector import MotionDetector, MotionResult
 from connect.audio.audio_capture import AudioCapture
-from connect.audio.yamnet_detector import YAMNetDetector, YAMNetResult
 from connect.transport.trigger_sender import TriggerSender
 from connect.transport.websocket_client import WebSocketClient, WSConfig
 from connect.buffer.local_queue import LocalQueue
 
+# ── Lazy YAMNet import (graceful fallback if TensorFlow not available) ──
+YAMNetDetector = None
+YAMNetResult = None
+_yamnet_import_error = None
+try:
+    from connect.audio.yamnet_detector import YAMNetDetector, YAMNetResult  # type: ignore
+except ImportError as e:
+    _yamnet_import_error = str(e)
+    logging.warning(
+        "YAMNet/TensorFlow not available: %s — audio classification disabled",
+        _yamnet_import_error,
+    )
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-DEFAULT_BURST_FRAMES = 8
 MAIN_LOOP_INTERVAL = 0.1  # seconds between frame reads
+MOTION_COOLDOWN = 30.0    # seconds to wait after a trigger before next check
 
 
 class VisionOSConnect:
@@ -52,6 +68,7 @@ class VisionOSConnect:
         self._config = config
         self._running = False
         self._error: Optional[str] = None
+        self._last_trigger_time = 0.0
 
         # ── Camera Modules ────────────────────────────────────────────────
         self._rtsp_reader = RTSPReader(
@@ -59,8 +76,8 @@ class VisionOSConnect:
             camera_id=config.camera_id,
         )
         self._motion_detector = MotionDetector(
-            mode=config.mode,
-            ignore_zones=config.ignore_zones,
+            threshold=config.motion_threshold,
+            min_area=config.motion_min_area,
         )
 
         # ── Audio Modules ─────────────────────────────────────────────────
@@ -68,15 +85,24 @@ class VisionOSConnect:
         self._yamnet_detector: Optional[YAMNetDetector] = None
         if config.audio_enabled:
             self._audio_capture = AudioCapture()
-            self._yamnet_detector = YAMNetDetector()
+            if YAMNetDetector is not None:
+                self._yamnet_detector = YAMNetDetector()
 
         # ── Transport Modules ─────────────────────────────────────────────
         self._trigger_sender = TriggerSender(
-            backend_url=config.backend_url,
-            user_token=config.api_key,
+            api_base_url=config.backend_url,
+            auth_token=config.api_key,
         )
+        # Convert http/https to ws/wss for WebSocket URL
+        ws_base = config.backend_url.rstrip("/")
+        if ws_base.startswith("https://"):
+            ws_base = ws_base.replace("https://", "wss://")
+        elif ws_base.startswith("http://"):
+            ws_base = ws_base.replace("http://", "ws://")
+        else:
+            ws_base = f"ws://{ws_base}"
         self._ws_client = WebSocketClient(
-            config=WSConfig(server_url=f"{config.backend_url.rstrip('/')}/ws"),
+            config=WSConfig(server_url=f"{ws_base}/ws"),
             camera_id=config.camera_id,
             user_token=config.api_key,
         )
@@ -115,8 +141,8 @@ class VisionOSConnect:
         self._error = None
 
         try:
-            # 1. Connect to RTSP camera
-            camera_ok = await self._rtsp_reader.connect()
+            # 1. Connect to RTSP camera (with 10s timeout)
+            camera_ok = await self._rtsp_reader.connect(timeout=10.0)
             if not camera_ok:
                 logger.warning("Camera connection failed — will retry in main loop")
 
@@ -144,6 +170,11 @@ class VisionOSConnect:
 
             logger.info("VisionOSConnect started successfully")
 
+        except asyncio.CancelledError:
+            logger.warning("Startup cancelled — cleaning up")
+            self._running = False
+            self._error = "startup_cancelled"
+            # Don't re-raise — let stop() handle cleanup
         except Exception:
             self._running = False
             self._error = "startup_failed"
@@ -153,7 +184,7 @@ class VisionOSConnect:
     async def stop(self) -> None:
         """Gracefully stop all modules and clean up resources.
 
-        Stops in reverse order: main loop → WebSocket → audio → camera → buffer.
+        Stops in reverse order: main loop -> WebSocket -> audio -> camera -> buffer.
         """
         self._running = False
         logger.info("Stopping VisionOSConnect ...")
@@ -183,8 +214,8 @@ class VisionOSConnect:
         if self._audio_capture is not None:
             await self._audio_capture.stop_stream()
 
-        # Disconnect camera
-        await self._rtsp_reader.disconnect()
+        # Release camera
+        await self._rtsp_reader.release()
 
         # Close buffer
         self._local_queue.close()
@@ -222,7 +253,7 @@ class VisionOSConnect:
         Each iteration:
         1. Read a frame from the RTSP stream
         2. Run motion detection on the frame
-        3. If motion triggers: process the trigger
+        3. If motion detected and cooldown elapsed: process the trigger
         4. Yield control briefly to allow other tasks to run
         """
         logger.info("Main processing loop started")
@@ -230,19 +261,32 @@ class VisionOSConnect:
         try:
             while self._running:
                 # 1. Read frame
-                frame_jpeg = await self._rtsp_reader.read_frame()
-                if frame_jpeg is None:
+                try:
+                    frame = await self._rtsp_reader.read_frame()
+                except ConnectionError:
+                    logger.warning("Camera disconnected — attempting reconnect...")
+                    reconnected = await self._rtsp_reader.reconnect()
+                    if reconnected:
+                        logger.info("Camera reconnected successfully")
+                    else:
+                        logger.warning("Camera reconnection failed — will retry")
+                    await asyncio.sleep(2.0)
+                    continue
+
+                if frame is None:
                     # Camera may be disconnected — attempt reconnect
                     logger.debug("No frame received — camera may be disconnected")
                     await asyncio.sleep(1.0)
                     continue
 
                 # 2. Run motion detection
-                motion_result = await self._motion_detector.process(frame_jpeg)
+                motion_result: MotionResult = self._motion_detector.detect(frame)
 
-                # 3. On trigger: process
-                if motion_result.should_trigger:
-                    await self._process_trigger(motion_result, frame_jpeg)
+                # 3. On motion trigger (with cooldown)
+                now = asyncio.get_event_loop().time()
+                if motion_result.motion_detected and (now - self._last_trigger_time) >= MOTION_COOLDOWN:
+                    self._last_trigger_time = now
+                    await self._process_trigger(motion_result, frame)
 
                 # 4. Yield control
                 await asyncio.sleep(MAIN_LOOP_INTERVAL)
@@ -256,34 +300,27 @@ class VisionOSConnect:
     async def _process_trigger(
         self,
         motion_result: MotionResult,
-        frame_jpeg: bytes,
+        frame,
     ) -> None:
         """Handle a motion trigger event.
 
         Pipeline:
-        1. Read a burst of frames from the camera
-        2. Select the best frame (person-shaped contours preferred)
-        3. Classify audio if audio capture is enabled
-        4. Send the trigger to the backend (or queue if offline)
+        1. Encode the frame as base64 JPEG
+        2. Classify audio if audio capture is enabled
+        3. Send the trigger to the backend (or queue if offline)
 
         Args:
             motion_result: MotionResult from the motion detector.
-            frame_jpeg: The JPEG frame that triggered the motion event.
+            frame: BGR numpy array from RTSPReader.
         """
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(timezone.utc).timestamp()
 
-        # 1. Read burst of frames
-        burst_frames = await self._rtsp_reader.read_burst(DEFAULT_BURST_FRAMES)
-        if burst_frames:
-            # Include the trigger frame at the front
-            all_frames = [frame_jpeg] + burst_frames
-        else:
-            all_frames = [frame_jpeg]
+        # 1. Encode frame as JPEG then base64
+        import cv2
+        _, jpeg_buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        image_base64 = base64.b64encode(jpeg_buffer.tobytes()).decode("ascii")
 
-        # 2. Select best frame
-        best_frame = select_best_frame(all_frames)
-
-        # 3. Classify audio if enabled
+        # 2. Classify audio if enabled
         audio_result: Optional[YAMNetResult] = None
         if self._audio_capture is not None and self._yamnet_detector is not None:
             audio_chunk = await self._audio_capture.read_chunk()
@@ -293,46 +330,37 @@ class VisionOSConnect:
                 except Exception:
                     logger.exception("Audio classification failed during trigger")
 
-        # 4. Build trigger payload
-        trigger_data = {
-            "type": "frame",
-            "jpeg_bytes": best_frame,
-            "motion_result": {
-                "pixel_diff": motion_result.pixel_diff,
-                "largest_contour_area": motion_result.largest_contour_area,
-                "diff_category": motion_result.diff_category,
-                "contour_count": motion_result.contour_count,
-            },
-            "camera_id": self._config.camera_id,
-            "timestamp": timestamp,
-        }
-
-        # Include audio result if available
-        if audio_result is not None:
-            trigger_data["audio_result"] = {
-                "class_name": audio_result.class_name,
-                "class_id": audio_result.class_id,
-                "confidence": audio_result.confidence,
-                "should_trigger": audio_result.should_trigger,
-            }
-
-        # 5. Send to backend (or queue if offline)
+        # 3. Send to backend (or queue if offline)
         try:
-            result = await self._trigger_sender.send_frame_trigger(
-                jpeg_bytes=best_frame,
-                motion_result=trigger_data["motion_result"],
+            response = await self._trigger_sender.send_frame_trigger(
                 camera_id=self._config.camera_id,
+                image_base64=image_base64,
                 timestamp=timestamp,
             )
 
-            if result.get("status") == "error":
-                # Backend unreachable — queue locally
+            if not response.success:
+                # Backend unreachable — queue locally (log once, not every trigger)
                 logger.warning("Backend unreachable — queuing trigger locally")
-                self._local_queue.enqueue(trigger_data)
+                self._local_queue.enqueue({
+                    "type": "frame",
+                    "camera_id": self._config.camera_id,
+                    "image_base64": image_base64,
+                    "timestamp": timestamp,
+                    "motion_confidence": motion_result.confidence,
+                    "motion_area_pct": motion_result.motion_area_pct,
+                })
 
         except Exception:
-            logger.exception("Failed to send trigger — queuing locally")
-            self._local_queue.enqueue(trigger_data)
+            # Log once per batch — avoid flooding console
+            logger.debug("Failed to send trigger — queuing locally")
+            self._local_queue.enqueue({
+                "type": "frame",
+                "camera_id": self._config.camera_id,
+                "image_base64": image_base64,
+                "timestamp": timestamp,
+                "motion_confidence": motion_result.confidence,
+                "motion_area_pct": motion_result.motion_area_pct,
+            })
 
     async def _flush_queued_events(self) -> None:
         """Flush any events queued from a previous session.
@@ -416,4 +444,28 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # ── Crash-log wrapper ──────────────────────────────────────────────
+    # Writes any unhandled exception to %APPDATA%\VisionOS\crash.log
+    # and pauses the terminal so the user can read the error.
+    # ────────────────────────────────────────────────────────────────────
+    crash_log_dir = os.path.join(os.environ.get("APPDATA", "."), "VisionOS")
+    crash_log_path = os.path.join(crash_log_dir, "crash.log")
+    os.makedirs(crash_log_dir, exist_ok=True)
+
+    try:
+        asyncio.run(main())
+    except Exception:
+        with open(crash_log_path, "w", encoding="utf-8") as f:
+            f.write(f"VisionOS Connect — CRASH REPORT\n")
+            f.write(f"Time: {datetime.now(timezone.utc).isoformat()}\n")
+            f.write(f"{'='*60}\n")
+            traceback.print_exc(file=f)
+        # Also print to stderr so terminal shows it
+        print(f"\n❌ VisionOS Connect crashed! See: {crash_log_path}", file=sys.stderr)
+        traceback.print_exc()
+        print(f"\nPress Enter to exit...", file=sys.stderr)
+        try:
+            input()
+        except EOFError:
+            pass
+        sys.exit(1)

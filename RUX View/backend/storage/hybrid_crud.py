@@ -313,6 +313,14 @@ class HybridCRUD:
                         event_type=e.incident_id or "motion",
                         confidence=0.0,
                         threat_level=e.threat_level or "LOW",
+                        thumbnail_url=e.thumbnail_url or f"/api/triggers/image/{e.incident_id}",
+                        alert_message=(e.gemini_decision or {}).get("alert_message", ""),
+                        camera_name=e.camera_id,
+                        duration_sec=int(e.duration_sec or 0),
+                        person_ids=(e.gemini_decision or {}).get("person_ids", []),
+                        details={
+                            "image_base64": (e.gemini_decision or {}).get("image_base64", ""),
+                        },
                         created_at=str(e.timestamp_start) if e.timestamp_start else "",
                     ) for e in pg_events
                 ]
@@ -414,6 +422,14 @@ class HybridCRUD:
                         camera_id=e.camera_id,
                         event_type=e.incident_id or "motion",
                         threat_level=e.threat_level or "LOW",
+                        thumbnail_url=e.thumbnail_url or f"/api/triggers/image/{e.incident_id}",
+                        alert_message=(e.gemini_decision or {}).get("alert_message", ""),
+                        camera_name=e.camera_id,
+                        duration_sec=int(e.duration_sec or 0),
+                        person_ids=(e.gemini_decision or {}).get("person_ids", []),
+                        details={
+                            "image_base64": (e.gemini_decision or {}).get("image_base64", ""),
+                        },
                         created_at=str(e.timestamp_start) if e.timestamp_start else "",
                     ) for e in pg_events
                 ]

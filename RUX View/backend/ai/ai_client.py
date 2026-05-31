@@ -31,7 +31,7 @@ def _get_model():
     global _model
     if _model is None:
         genai.configure(api_key=settings.gemini_api_key)
-        _model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        _model = genai.GenerativeModel("models/gemini-2.5-flash")
     return _model
 
 
@@ -220,6 +220,104 @@ Return JSON only:
   "confidence": 0.85,
   "reasoning": "brief explanation"
 }}"""
+
+
+SECOND_PASS_PROMPT = """You are a CCTV security analyst. You have received a text description
+of a scene that was extracted from a camera frame by a vision model.
+
+Scene description:
+{vision_summary}
+
+Analyse this description and provide a final security verdict.
+Return JSON only. No explanation. No markdown.
+
+{{
+  "threat_level": "LOW/MEDIUM/HIGH",
+  "alert_message": "one sentence actionable alert for the property owner",
+  "action": "LOG_ONLY/TELEGRAM_TEXT/TELEGRAM_PHOTO/EMERGENCY",
+  "reasoning": "brief explanation of why this verdict was reached",
+  "person_ids": [],
+  "follow_up": "any recommended action for the owner"
+}}"""
+
+
+async def analyse_frame_with_second_pass(jpeg_bytes: bytes) -> dict:
+    """Dual-layer AI analysis: vision → text analysis → final verdict.
+
+    Layer 1: Gemini vision analyses the JPEG frame → extracts persons, scene, alerts.
+    Layer 2: The text summary is fed to a second Gemini call that produces a
+             final security verdict with actionable alert message.
+
+    Returns:
+        dict with keys from analyse_frame (persons, person_count, scene_alerts, etc.)
+        PLUS: threat_level, alert_message, action, reasoning, follow_up
+    """
+    fallback = {
+        "persons": [],
+        "person_count": 0,
+        "scene_alerts": [],
+        "vehicles": [],
+        "gates_visible": {},
+        "threat_level": "LOW",
+        "alert_message": "No alert",
+        "action": "LOG_ONLY",
+        "reasoning": "AI analysis failed",
+        "person_ids": [],
+        "follow_up": "",
+    }
+    try:
+        # Layer 1: Vision analysis
+        vision_result = await analyse_frame(jpeg_bytes)
+        if not vision_result.get("persons") and not vision_result.get("scene_alerts"):
+            # No persons or alerts — nothing to analyse further
+            fallback.update(vision_result)
+            fallback["threat_level"] = "LOW"
+            fallback["alert_message"] = "No activity detected"
+            return fallback
+
+        # Build a text summary from the vision result
+        summary_parts = []
+        summary_parts.append(f"Person count: {vision_result.get('person_count', 0)}")
+        for p in vision_result.get("persons", []):
+            summary_parts.append(
+                f"Person: gender={p.get('gender','unknown')}, "
+                f"age={p.get('age_estimate','unknown')}, "
+                f"clothing={p.get('clothing','unknown')}, "
+                f"action={p.get('action','unknown')}, "
+                f"hand_objects={p.get('hand_objects',[])}, "
+                f"carried_items={p.get('carried_items',[])}"
+            )
+        if vision_result.get("scene_alerts"):
+            summary_parts.append(f"Scene alerts: {', '.join(vision_result['scene_alerts'])}")
+        if vision_result.get("vehicles"):
+            summary_parts.append(f"Vehicles: {vision_result['vehicles']}")
+        if vision_result.get("gates_visible"):
+            summary_parts.append(f"Gates: {vision_result['gates_visible']}")
+
+        vision_summary = "\n".join(summary_parts)
+
+        # Layer 2: Text analysis → final verdict
+        model = _get_model()
+        prompt = SECOND_PASS_PROMPT.format(vision_summary=vision_summary)
+        response = await model.generate_content_async(prompt)
+        verdict = _parse_json(response.text, {})
+
+        # Merge vision result with verdict
+        result = dict(vision_result)
+        result["threat_level"] = verdict.get("threat_level", fallback["threat_level"])
+        result["alert_message"] = verdict.get("alert_message", fallback["alert_message"])
+        result["action"] = verdict.get("action", fallback["action"])
+        result["reasoning"] = verdict.get("reasoning", fallback["reasoning"])
+        result["person_ids"] = verdict.get("person_ids", fallback["person_ids"])
+        result["follow_up"] = verdict.get("follow_up", fallback["follow_up"])
+
+        for key in fallback:
+            result.setdefault(key, fallback[key])
+        return result
+
+    except Exception as exc:
+        logger.error("analyse_frame_with_second_pass failed: %s", exc, exc_info=True)
+        return fallback
 
 
 # ── Vision Analysis (fast — used during incidents) ─────────────

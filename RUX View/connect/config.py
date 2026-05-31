@@ -2,6 +2,16 @@
 
 Config is stored as a JSON file in %APPDATA%/VisionOS/config.json.
 Provides a dataclass-based configuration model with load/save helpers.
+
+Environment variable overrides (applied after loading from file):
+    BACKEND_URL     → backend_url
+    RTSP_URL        → rtsp_url
+    CAMERA_ID       → camera_id
+    CAMERA_NAME     → camera_name
+    API_KEY         → api_key
+    AUDIO_ENABLED   → audio_enabled (true/false)
+    MOTION_THRESHOLD → motion_threshold (float)
+    MOTION_MIN_AREA → motion_min_area (int)
 """
 
 import json
@@ -15,6 +25,11 @@ logger = logging.getLogger(__name__)
 # ── Paths ──────────────────────────────────────────────────────────────────────
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", "."), "VisionOS")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
+# ── Dev Auth Token ─────────────────────────────────────────────────────────────
+# When no api_key is provided (no config file or empty), use this dev token
+# so the client can authenticate with the backend in development mode.
+DEV_AUTH_TOKEN = "dev-token-001"
 
 
 @dataclass
@@ -46,7 +61,10 @@ class AppConfig:
     backend_url: str = "https://api.visionos.app"
     audio_enabled: bool = True
     auto_start: bool = False
-    ignore_zones: list = None
+    ignore_zones: Optional[list] = None
+
+    motion_threshold: float = 0.05
+    motion_min_area: int = 8000
 
     def __post_init__(self) -> None:
         """Ensure mutable defaults are initialised."""
@@ -54,38 +72,100 @@ class AppConfig:
             self.ignore_zones = []
 
 
+def _apply_env_overrides(config: AppConfig) -> AppConfig:
+    """Apply environment variable overrides to a config instance.
+
+    Args:
+        config: AppConfig instance to override.
+
+    Returns:
+        The same config instance with overridden fields.
+    """
+    env_overrides = {
+        "backend_url": os.environ.get("BACKEND_URL") or os.environ.get("DASHBOARD_URL"),
+        "rtsp_url": os.environ.get("RTSP_URL"),
+        "camera_id": os.environ.get("CAMERA_ID"),
+        "camera_name": os.environ.get("CAMERA_NAME"),
+        "api_key": os.environ.get("API_KEY") or os.environ.get("AUTH_TOKEN"),
+    }
+
+
+    for field, value in env_overrides.items():
+        if value is not None:
+            setattr(config, field, value)
+            logger.info("Config override from env: %s = %s", field, value)
+
+    # Boolean override
+    audio_env = os.environ.get("AUDIO_ENABLED")
+    if audio_env is not None:
+        config.audio_enabled = audio_env.lower() in ("1", "true", "yes")
+
+    # Float override
+    threshold_env = os.environ.get("MOTION_THRESHOLD")
+    if threshold_env is not None:
+        try:
+            config.motion_threshold = float(threshold_env)
+        except ValueError:
+            logger.warning("Invalid MOTION_THRESHOLD value: %s", threshold_env)
+
+    # Int override
+    min_area_env = os.environ.get("MOTION_MIN_AREA")
+    if min_area_env is not None:
+        try:
+            config.motion_min_area = int(min_area_env)
+        except ValueError:
+            logger.warning("Invalid MOTION_MIN_AREA value: %s", min_area_env)
+
+    return config
+
+
 def load_config() -> AppConfig:
-    """Load configuration from the JSON file.
+    """Load configuration from the JSON file, then apply env overrides.
 
     Reads ``%APPDATA%/VisionOS/config.json`` and returns an
     ``AppConfig`` instance.  If the file does not exist or is
     malformed, returns an ``AppConfig`` with default values.
+
+    Environment variables override any file-based values (see module docstring).
+
+    If ``api_key`` is still empty after loading, defaults to ``dev-token-001``
+    for development-mode authentication.
 
     Returns:
         AppConfig instance populated from the file (or defaults).
     """
     if not config_exists():
         logger.info("No config file found at %s — using defaults", CONFIG_FILE)
-        return AppConfig()
+        config = AppConfig()
+    else:
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            # Only consume keys that belong to AppConfig — ignore extras
+            valid_keys = {f.name for f in AppConfig.__dataclass_fields__.values()}
+            filtered = {k: v for k, v in data.items() if k in valid_keys}
+            config = AppConfig(**filtered)
+            logger.info("Config loaded from %s", CONFIG_FILE)
 
-        # Only consume keys that belong to AppConfig — ignore extras
-        valid_keys = {f.name for f in AppConfig.__dataclass_fields__.values()}
-        filtered = {k: v for k, v in data.items() if k in valid_keys}
-        config = AppConfig(**filtered)
-        logger.info("Config loaded from %s", CONFIG_FILE)
-        return config
+        except (json.JSONDecodeError, IOError, TypeError) as exc:
+            logger.warning(
+                "Failed to load config from %s: %s — using defaults",
+                CONFIG_FILE,
+                exc,
+            )
+            config = AppConfig()
 
-    except (json.JSONDecodeError, IOError, TypeError) as exc:
-        logger.warning(
-            "Failed to load config from %s: %s — using defaults",
-            CONFIG_FILE,
-            exc,
-        )
-        return AppConfig()
+    # Apply environment variable overrides
+    config = _apply_env_overrides(config)
+
+    # Dev auth token fallback
+    if not config.api_key:
+        config.api_key = DEV_AUTH_TOKEN
+        logger.info("No API key configured — using dev auth token: %s", DEV_AUTH_TOKEN)
+
+    return config
+
 
 
 def save_config(config: AppConfig) -> None:

@@ -3,6 +3,7 @@
 __all__ = [
     "analyse_frame",
     "analyse_frame_detailed",
+    "analyse_frame_with_second_pass",
     "analyse_shop_entry",
     "make_incident_decision",
     "answer_query",
@@ -16,6 +17,7 @@ __all__ = [
 from .ai_client import (
     analyse_frame,
     analyse_frame_detailed,
+    analyse_frame_with_second_pass,
     analyse_shop_entry,
     make_incident_decision,
     answer_query,

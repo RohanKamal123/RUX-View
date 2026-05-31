@@ -221,29 +221,30 @@ class CameraPipeline:
             )
 
     async def _run_vision_analysis(self, ctx: PipelineContext) -> dict:
-        """Run Gemini vision analysis on the frame.
+        """Run dual-layer Gemini analysis on the frame.
+
+        Layer 1: Vision analysis on the JPEG frame.
+        Layer 2: Text summary → final security verdict with alert message.
 
         Args:
             ctx: PipelineContext with frame data.
 
         Returns:
-            Dict with analysis results (persons, threat_level, etc.).
+            Dict with analysis results (persons, threat_level, alert_message, etc.).
         """
         try:
-            from backend.ai import analyse_frame
+            from backend.ai import analyse_frame_with_second_pass
 
             if ctx.jpeg_bytes is None:
-                return {"persons": [], "threat_level": "LOW"}
+                return {"persons": [], "threat_level": "LOW", "alert_message": ""}
 
-            result = await analyse_frame(
+            result = await analyse_frame_with_second_pass(
                 jpeg_bytes=ctx.jpeg_bytes,
-                camera_id=ctx.camera_id,
-                mode=ctx.mode,
             )
-            return result or {"persons": [], "threat_level": "LOW"}
+            return result or {"persons": [], "threat_level": "LOW", "alert_message": ""}
         except Exception as exc:
             logger.error("Vision analysis failed: %s", exc, exc_info=True)
-            return {"persons": [], "threat_level": "LOW"}
+            return {"persons": [], "threat_level": "LOW", "alert_message": ""}
 
     async def _run_reid(self, frame_bytes: Optional[bytes], person_results: list,
                          ctx: PipelineContext) -> list[str]:
@@ -420,11 +421,17 @@ class CameraPipeline:
             "sighting_count": len(person_results),
         }
 
-        # Build user dict (would come from DB)
+        # Build user dict — use TELEGRAM_CHAT_ID from env settings
+        from backend.config import settings as _settings
         user = {
             "user_id": ctx.user_id,
-            "telegram_chat_id": None,  # From user config
+            "telegram_chat_id": _settings.telegram_chat_id or None,
         }
+        logger.info(
+            "Alert routing: telegram_bot_token=%s, telegram_chat_id=%s",
+            "SET" if _settings.telegram_bot_token else "MISSING",
+            _settings.telegram_chat_id or "MISSING",
+        )
 
         # Route alert
         alert_sent = False
