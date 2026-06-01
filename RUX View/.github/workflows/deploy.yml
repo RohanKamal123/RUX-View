@@ -1,0 +1,137 @@
+name: Deploy Vision OS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker image tag (e.g., v1.0.0)'
+        required: true
+        default: 'latest'
+      environment:
+        description: 'Target environment (staging or production)'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest backend/tests/ -v
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Google Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: us-central1-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.GCR_JSON_KEY }}
+
+      - name: Extract git commit hash
+        id: git
+        run: |
+          echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ github.event.inputs.tag }}
+            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.git.outputs.SHA }}
+
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: ${{ steps.deploy.outputs.service_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Extract git commit hash
+        id: git
+        run: |
+          echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        run: |
+          gcloud run deploy vision-os \
+            --image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ github.event.inputs.tag }} \
+            --platform=managed \
+            --region=us-central1 \
+            --allow-unauthenticated \
+            --revision-suffix=${{ steps.git.outputs.SHA }} \
+            --quiet
+          echo "service_url=$(gcloud run services describe vision-os --platform=managed --region=us-central1 --format='value(status.url)')" >> $GITHUB_OUTPUT
+
+  smoke:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run smoke test
+        run: |
+          URL="${{ needs.deploy.outputs.service_url }}"
+          MAX_ATTEMPTS=10
+          ATTEMPT=1
+          until curl -sf "$URL/health" > /dev/null; do
+            if [[ $ATTEMPT -ge $MAX_ATTEMPTS ]]; then
+              echo "Smoke test failed: $URL/health not responding after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Attempt $ATTEMPT: waiting for health endpoint..."
+            sleep 10
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          echo "Smoke test passed: health endpoint is responding"
