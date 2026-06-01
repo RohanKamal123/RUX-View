@@ -36,6 +36,7 @@ class PipelineContext:
 class PipelineResult:
     incident_id: Optional[str] = None
     threat_level: str = "LOW"
+    alert_message: str = ""
     alert_sent: bool = False
     person_ids: list = field(default_factory=list)
     error: Optional[str] = None
@@ -71,6 +72,12 @@ class CameraPipeline:
 
         # Shared ReID engine singleton
         self._shared_reid = None
+
+        # Frame quality gate state
+        self._last_frame_gray: Optional[object] = None  # Previous frame for motion comparison
+
+        # Last structured analysis result (for fallback message fix)
+        self._last_structured_result: dict = {}
 
     def _init_tracker(self):
         """Initialize incident tracker."""
@@ -131,6 +138,83 @@ class CameraPipeline:
                 voice_note_generator=voice,
                 sms_client=sms,
             )
+
+    # ── Frame Quality Gate ──────────────────────────────────────
+
+    def _check_frame_quality(self, jpeg_bytes: bytes) -> bool:
+        """Check frame quality before sending to Gemini.
+
+        Three checks:
+        1. Mean brightness < 30 → too dark, skip
+        2. Laplacian variance < 50 → too blurry, skip
+        3. Motion area < 2% of frame → too little motion, skip
+
+        All checks logged at DEBUG level.
+
+        Args:
+            jpeg_bytes: JPEG frame bytes.
+
+        Returns:
+            True if frame passes all quality checks, False if it should be skipped.
+        """
+        try:
+            import cv2
+            import numpy as np
+
+            # Decode JPEG to numpy array
+            np_arr = np.frombuffer(jpeg_bytes, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                logger.debug("Frame quality: failed to decode frame")
+                return False
+
+            # Check 1: Mean brightness
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            mean_brightness = cv2.mean(gray)[0]
+            if mean_brightness < 30:
+                logger.debug(
+                    "Frame quality: too dark (brightness=%.2f < 30) — skipping",
+                    mean_brightness,
+                )
+                return False
+
+            # Check 2: Blur (Laplacian variance)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            if laplacian_var < 50:
+                logger.debug(
+                    "Frame quality: too blurry (laplacian_var=%.2f < 50) — skipping",
+                    laplacian_var,
+                )
+                return False
+
+            # Check 3: Motion area (compare with previous frame)
+            if self._last_frame_gray is not None:
+                diff = cv2.absdiff(self._last_frame_gray, gray)
+                _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+                motion_pixels = cv2.countNonZero(thresh)
+                total_pixels = gray.shape[0] * gray.shape[1]
+                motion_percent = (motion_pixels / total_pixels) * 100.0
+
+                if motion_percent < 2.0:
+                    logger.debug(
+                        "Frame quality: motion too small (%.2f%% < 2%%) — skipping",
+                        motion_percent,
+                    )
+                    return False
+
+            # Store current frame for next comparison
+            self._last_frame_gray = gray
+
+            return True
+
+        except ImportError:
+            # OpenCV not available — skip quality checks
+            logger.debug("Frame quality: OpenCV not available, skipping checks")
+            return True
+        except Exception as exc:
+            logger.debug("Frame quality check failed: %s", exc)
+            return True  # Pass through on error (fail open)
 
     async def process_trigger(self, ctx: PipelineContext) -> PipelineResult:
         """Process a trigger through the full pipeline.
@@ -223,8 +307,13 @@ class CameraPipeline:
     async def _run_vision_analysis(self, ctx: PipelineContext) -> dict:
         """Run dual-layer Gemini analysis on the frame.
 
-        Layer 1: Vision analysis on the JPEG frame.
-        Layer 2: Text summary → final security verdict with alert message.
+        Before calling Gemini, runs a frame quality gate:
+        - Brightness check (mean < 30 → skip)
+        - Blur check (Laplacian variance < 50 → skip)
+        - Motion check (< 2% of frame → skip)
+
+        Then runs structured analysis with the new JSON schema.
+        Falls back to second-pass analysis if structured returns empty.
 
         Args:
             ctx: PipelineContext with frame data.
@@ -233,15 +322,44 @@ class CameraPipeline:
             Dict with analysis results (persons, threat_level, alert_message, etc.).
         """
         try:
-            from backend.ai import analyse_frame_with_second_pass
+            from backend.ai import analyse_frame_structured, analyse_frame_with_second_pass
 
             if ctx.jpeg_bytes is None:
                 return {"persons": [], "threat_level": "LOW", "alert_message": ""}
 
+            # ── Frame Quality Gate ──────────────────────────────
+            if not self._check_frame_quality(ctx.jpeg_bytes):
+                # Frame failed quality checks — return empty result
+                return {"persons": [], "threat_level": "LOW", "alert_message": ""}
+
+            # ── Structured Analysis ─────────────────────────────
+            structured = await analyse_frame_structured(
+                jpeg_bytes=ctx.jpeg_bytes,
+            )
+
+            # Store for fallback message fix in _make_decision
+            self._last_structured_result = structured
+
+            # If structured returned empty (confidence < 0.6), skip
+            if not structured:
+                logger.debug("Structured analysis returned empty (low confidence)")
+                return {"persons": [], "threat_level": "LOW", "alert_message": ""}
+
+            # Run second-pass for full person detection (backward compat)
             result = await analyse_frame_with_second_pass(
                 jpeg_bytes=ctx.jpeg_bytes,
             )
+
+            # Merge structured fields into result
+            result["event_type"] = structured.get("event_type", "unknown")
+            result["structured_confidence"] = structured.get("confidence", 0.0)
+            result["structured_description"] = structured.get("description", "")
+            result["action_required"] = structured.get("action_required", False)
+            result["subject_count"] = structured.get("subject_count", 0)
+            result["subject_description"] = structured.get("subject_description", "")
+
             return result or {"persons": [], "threat_level": "LOW", "alert_message": ""}
+
         except Exception as exc:
             logger.error("Vision analysis failed: %s", exc, exc_info=True)
             return {"persons": [], "threat_level": "LOW", "alert_message": ""}
@@ -388,9 +506,13 @@ class CameraPipeline:
             }
         except Exception as exc:
             logger.error("Incident decision failed: %s", exc, exc_info=True)
+            # Use the structured description from the last analysis instead of hardcoded fallback
+            fallback_description = self._last_structured_result.get(
+                "description", "Incident closed"
+            )
             return {
                 "threat_level": "MEDIUM",
-                "alert_message": f"Incident closed (decision fallback)",
+                "alert_message": f"Incident closed: {fallback_description}",
             }
 
     async def _route_and_save(self, decision: dict, ctx: PipelineContext,
@@ -467,6 +589,7 @@ class CameraPipeline:
         return PipelineResult(
             incident_id=self._incident_tracker.incident_id,
             threat_level=threat_level,
+            alert_message=alert_message,
             alert_sent=alert_sent,
             person_ids=[p.get("person_uid", "") for p in person_results],
         )

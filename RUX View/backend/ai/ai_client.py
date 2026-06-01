@@ -3,6 +3,7 @@ ai_client.py — Vision OS AI Client (Gemini 2.0 Flash)
 
 Unified client for ALL Gemini operations:
 - Vision analysis (fast + detailed)
+- Structured JSON analysis (with quality gates)
 - Shop entry analysis
 - Incident decision-making
 - NL query answering
@@ -70,6 +71,123 @@ def _truncate_text(text: str, max_words: int = 200) -> str:
     if len(words) <= max_words:
         return text
     return " ".join(words[:max_words]) + "…"
+
+
+# ── Structured Analysis Schema ─────────────────────────────────
+
+STRUCTURED_ANALYSIS_SCHEMA = {
+    "event_type": "person_entering|person_leaving|loitering|vehicle|crowd|fight|unknown",
+    "threat_level": "LOW|MEDIUM|HIGH|EMERGENCY",
+    "confidence": "0.0-1.0",
+    "description": "One clear sentence describing exactly what happened",
+    "action_required": "true/false",
+    "subject_count": 0,
+    "subject_description": "brief description or empty string",
+}
+
+STRUCTURED_ANALYSIS_PROMPT = """Analyse this CCTV frame. Return ONLY valid JSON with EXACTLY these keys and controlled vocabulary. No explanation. No markdown.
+
+{
+  "event_type": "person_entering|person_leaving|loitering|vehicle|crowd|fight|unknown",
+  "threat_level": "LOW|MEDIUM|HIGH|EMERGENCY",
+  "confidence": 0.0-1.0,
+  "description": "One clear sentence describing exactly what happened",
+  "action_required": true/false,
+  "subject_count": 0,
+  "subject_description": "brief description or empty string"
+}
+
+Use ONLY the exact values listed for event_type and threat_level. confidence must be a float between 0.0 and 1.0."""
+
+STRUCTURED_ANALYSIS_FALLBACK = {
+    "event_type": "unknown",
+    "threat_level": "LOW",
+    "confidence": 0.0,
+    "description": "No analysis available",
+    "action_required": False,
+    "subject_count": 0,
+    "subject_description": "",
+}
+
+VALID_EVENT_TYPES = {"person_entering", "person_leaving", "loitering", "vehicle", "crowd", "fight", "unknown"}
+VALID_THREAT_LEVELS = {"LOW", "MEDIUM", "HIGH", "EMERGENCY"}
+
+
+def _validate_structured_result(result: dict) -> bool:
+    """Validate that a structured result matches the required schema and controlled vocabulary."""
+    required_keys = {"event_type", "threat_level", "confidence", "description", "action_required", "subject_count", "subject_description"}
+    if not all(k in result for k in required_keys):
+        logger.warning("Structured result missing keys: %s", required_keys - set(result.keys()))
+        return False
+    if result.get("event_type") not in VALID_EVENT_TYPES:
+        logger.warning("Invalid event_type: %s", result.get("event_type"))
+        return False
+    if result.get("threat_level") not in VALID_THREAT_LEVELS:
+        logger.warning("Invalid threat_level: %s", result.get("threat_level"))
+        return False
+    confidence = result.get("confidence", 0.0)
+    if not isinstance(confidence, (int, float)) or confidence < 0.0 or confidence > 1.0:
+        logger.warning("Invalid confidence value: %s", confidence)
+        return False
+    if not isinstance(result.get("action_required"), bool):
+        logger.warning("action_required must be boolean, got: %s", type(result.get("action_required")))
+        return False
+    if not isinstance(result.get("subject_count"), int) or result["subject_count"] < 0:
+        logger.warning("subject_count must be non-negative int, got: %s", result.get("subject_count"))
+        return False
+    return True
+
+
+async def analyse_frame_structured(jpeg_bytes: bytes) -> dict:
+    """Analyse a CCTV frame and return structured JSON output.
+
+    Forces Gemini to return a controlled-vocabulary structured result.
+    - If confidence < 0.6, returns empty dict (silent discard).
+    - If schema validation fails, retries once, then returns safe default.
+    - If Gemini returns invalid JSON, retries once, then returns safe default.
+
+    Returns:
+        dict with keys: event_type, threat_level, confidence, description,
+                        action_required, subject_count, subject_description
+        OR empty dict {} if confidence < 0.6 (silent discard).
+    """
+    try:
+        model = _get_model()
+
+        # First attempt
+        response = await model.generate_content_async(
+            [STRUCTURED_ANALYSIS_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+        )
+        result = _parse_json(response.text, {})
+
+        # Validate schema
+        if result and _validate_structured_result(result):
+            # Check confidence threshold
+            if result.get("confidence", 0.0) < 0.6:
+                logger.debug("Frame analysis discarded: confidence %.2f < 0.6", result.get("confidence", 0.0))
+                return {}  # Silent discard
+            return result
+
+        # First attempt failed validation — retry once
+        logger.warning("Structured analysis failed validation, retrying once...")
+        response = await model.generate_content_async(
+            [STRUCTURED_ANALYSIS_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+        )
+        result = _parse_json(response.text, {})
+
+        if result and _validate_structured_result(result):
+            if result.get("confidence", 0.0) < 0.6:
+                logger.debug("Frame analysis discarded (retry): confidence %.2f < 0.6", result.get("confidence", 0.0))
+                return {}
+            return result
+
+        # Both attempts failed — use safe default
+        logger.warning("Structured analysis failed after retry, using safe default")
+        return dict(STRUCTURED_ANALYSIS_FALLBACK)
+
+    except Exception as exc:
+        logger.error("analyse_frame_structured failed: %s", exc, exc_info=True)
+        return dict(STRUCTURED_ANALYSIS_FALLBACK)
 
 
 # ── Prompts ────────────────────────────────────────────────────

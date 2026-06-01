@@ -308,6 +308,132 @@ async def test_reid_tiebreaker_returns_match_bool(mock_gemini_model):
     assert result["confidence"] == 0.85
 
 
+# ── Test: analyse_frame_structured ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_analyse_frame_structured_returns_valid_schema(
+    mock_gemini_model, sample_jpeg_bytes
+):
+    """Test that analyse_frame_structured returns valid structured JSON."""
+    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+        {
+            "event_type": "person_entering",
+            "threat_level": "LOW",
+            "confidence": 0.85,
+            "description": "A person is entering through the front gate",
+            "action_required": False,
+            "subject_count": 1,
+            "subject_description": "male in blue shirt",
+        }
+    )
+
+    from backend.ai.ai_client import analyse_frame_structured
+
+    result = await analyse_frame_structured(sample_jpeg_bytes)
+    assert result["event_type"] == "person_entering"
+    assert result["threat_level"] == "LOW"
+    assert result["confidence"] == 0.85
+    assert result["action_required"] is False
+    assert result["subject_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_analyse_frame_structured_discards_low_confidence(
+    mock_gemini_model, sample_jpeg_bytes
+):
+    """Test that confidence < 0.6 returns empty dict (silent discard)."""
+    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+        {
+            "event_type": "person_entering",
+            "threat_level": "LOW",
+            "confidence": 0.45,
+            "description": "A person is entering",
+            "action_required": False,
+            "subject_count": 1,
+            "subject_description": "male",
+        }
+    )
+
+    from backend.ai.ai_client import analyse_frame_structured
+
+    result = await analyse_frame_structured(sample_jpeg_bytes)
+    assert result == {}  # Silent discard
+
+
+@pytest.mark.asyncio
+async def test_analyse_frame_structured_retries_on_invalid(
+    mock_gemini_model, sample_jpeg_bytes
+):
+    """Test that invalid schema triggers a retry, then uses fallback."""
+    # First call returns invalid, second returns valid
+    mock_gemini_model.generate_content_async.side_effect = [
+        MagicMock(text="Not valid JSON at all"),
+        MagicMock(
+            text=json.dumps(
+                {
+                    "event_type": "vehicle",
+                    "threat_level": "MEDIUM",
+                    "confidence": 0.72,
+                    "description": "A vehicle is approaching the gate",
+                    "action_required": True,
+                    "subject_count": 1,
+                    "subject_description": "white sedan",
+                }
+            )
+        ),
+    ]
+
+    from backend.ai.ai_client import analyse_frame_structured
+
+    result = await analyse_frame_structured(sample_jpeg_bytes)
+    assert result["event_type"] == "vehicle"
+    assert result["confidence"] == 0.72
+
+
+@pytest.mark.asyncio
+async def test_analyse_frame_structured_fallback_after_retry(
+    mock_gemini_model, sample_jpeg_bytes
+):
+    """Test that both attempts failing returns safe default."""
+    mock_gemini_model.generate_content_async.side_effect = [
+        MagicMock(text="Not JSON"),
+        MagicMock(text="Still not JSON"),
+    ]
+
+    from backend.ai.ai_client import analyse_frame_structured
+
+    result = await analyse_frame_structured(sample_jpeg_bytes)
+    assert result["event_type"] == "unknown"
+    assert result["threat_level"] == "LOW"
+    assert result["confidence"] == 0.0
+    assert result["action_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_analyse_frame_structured_validates_controlled_vocab(
+    mock_gemini_model, sample_jpeg_bytes
+):
+    """Test that invalid event_type triggers retry."""
+    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+        {
+            "event_type": "invalid_type_here",
+            "threat_level": "LOW",
+            "confidence": 0.9,
+            "description": "test",
+            "action_required": False,
+            "subject_count": 0,
+            "subject_description": "",
+        }
+    )
+
+    from backend.ai.ai_client import analyse_frame_structured
+
+    result = await analyse_frame_structured(sample_jpeg_bytes)
+    # Should retry, but mock returns same invalid — falls to safe default
+    assert result["event_type"] == "unknown"
+
+
 # ── Test: Groq Transcription ──────────────────────────────────
 
 
