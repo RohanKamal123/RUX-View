@@ -493,12 +493,22 @@ class CameraPipeline:
         try:
             from backend.ai import make_incident_decision
 
+            context = {
+                "camera_name": ctx.camera_id,
+                "camera_mode": ctx.mode,
+                "timestamp": ctx.timestamp.isoformat(),
+                "location_type": ctx.location_id or "unknown",
+                "is_business_hours": "unknown",
+                "duration": len(timeline) if timeline else 0,
+                "reid_result": "unknown",
+                "is_known": False,
+                "label": "unknown",
+                "audio_context": str(ctx.yamnet_result) if ctx.yamnet_result else "none",
+                "history": [],
+            }
             decision = await make_incident_decision(
                 timeline=timeline,
-                camera_id=ctx.camera_id,
-                mode=ctx.mode,
-                persons=person_results,
-                yamnet_result=ctx.yamnet_result,
+                context=context,
             )
             return decision or {
                 "threat_level": "LOW",
@@ -508,11 +518,13 @@ class CameraPipeline:
             logger.error("Incident decision failed: %s", exc, exc_info=True)
             # Use the structured description from the last analysis instead of hardcoded fallback
             fallback_description = self._last_structured_result.get(
-                "description", "Incident closed"
+                "description", ""
             )
+            if not fallback_description:
+                fallback_description = "No analysis available"
             return {
                 "threat_level": "MEDIUM",
-                "alert_message": f"Incident closed: {fallback_description}",
+                "alert_message": f"Incident resolved: {fallback_description}",
             }
 
     async def _route_and_save(self, decision: dict, ctx: PipelineContext,
@@ -570,19 +582,18 @@ class CameraPipeline:
         # Save to database
         try:
             if self._db_factory:
-                from backend.storage.crud import save_incident_event
+                from backend.storage.crud import create_event
                 async with self._db_factory() as db:
-                    await save_incident_event(
-                        db=db,
-                        incident_id=self._incident_tracker.incident_id,
-                        camera_id=ctx.camera_id,
-                        location_id=ctx.location_id,
-                        user_id=ctx.user_id,
-                        threat_level=threat_level,
-                        alert_message=alert_message,
-                        person_ids=[p.get("person_uid", "") for p in person_results],
-                        timeline=self._incident_tracker.timeline,
-                    )
+                    await create_event(db, {
+                        "camera_id": ctx.camera_id,
+                        "location_id": ctx.location_id,
+                        "user_id": ctx.user_id,
+                        "incident_id": self._incident_tracker.incident_id,
+                        "timestamp_start": datetime.now(timezone.utc),
+                        "threat_level": threat_level,
+                        "alert_message": alert_message,
+                        "person_ids": [p.get("person_uid", "") for p in person_results],
+                    })
         except Exception as exc:
             logger.error("Failed to save incident event: %s", exc, exc_info=True)
 
