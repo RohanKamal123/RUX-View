@@ -59,9 +59,12 @@ async def reid_tiebreaker(desc_a: str, desc_b: str, time_gap: int) -> dict
 
 ### Stack
 ```python
-import google.generativeai as genai
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash-exp')
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
+
+vertexai.init(project=GOOGLE_CLOUD_PROJECT, location=GOOGLE_CLOUD_REGION)
+model = GenerativeModel("gemini-2.0-flash")
+# Uses Application Default Credentials (ADC) — no API key needed
 ```
 
 ### Key Decisions
@@ -127,7 +130,7 @@ async def synthesise_answer(question: str, events: list, analyses: list) -> str
 ---
 
 ## Dependencies
-- google-generativeai (Gemini 2.0 Flash)
+- google-cloud-aiplatform (Vertex AI Gemini — replaces google-generativeai)
 - groq (Groq API — replaces OpenAI Whisper)
 - boxmot (FastReID backend)
 - pgvector (embedding similarity)

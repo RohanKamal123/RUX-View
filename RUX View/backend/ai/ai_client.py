@@ -1,7 +1,7 @@
 """
-ai_client.py — Vision OS AI Client (Gemini 2.0 Flash)
+ai_client.py — Vision OS AI Client (Vertex AI Gemini)
 
-Unified client for ALL Gemini operations:
+Unified client for ALL Gemini operations via Vertex AI:
 - Vision analysis (fast + detailed)
 - Structured JSON analysis (with quality gates)
 - Shop entry analysis
@@ -11,13 +11,17 @@ Unified client for ALL Gemini operations:
 - Daily/weekly digest generation
 - Re-ID tiebreaker
 
-All functions are async. Uses google-generativeai SDK.
+All functions are async. Uses google-cloud-aiplatform (vertexai) SDK.
+Authentication uses Application Default Credentials (ADC) — no API key needed.
 """
 
+import asyncio
 import json
 import logging
+import time
 
-import google.generativeai as genai
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
 
 from backend.config import settings
 
@@ -25,14 +29,66 @@ logger = logging.getLogger(__name__)
 
 # ── Module-level cache ─────────────────────────────────────────
 _model = None
+_vertex_initialized = False
+
+# ── Global rate limiter: max 1 Gemini call per 5 seconds ──────
+_last_gemini_call: float = 0.0
+_gemini_lock = asyncio.Lock()
+_GEMINI_MIN_INTERVAL = 8.0  # seconds
+
+
+def _init_vertex():
+    """Initialize Vertex AI SDK once (singleton)."""
+    global _vertex_initialized
+    if not _vertex_initialized:
+        project = settings.google_cloud_project or "rux-view-497104"
+        location = settings.google_cloud_region or "us-central1"
+        logger.info(
+            "Initializing Vertex AI: project=%s, location=%s",
+            project, location,
+        )
+        vertexai.init(project=project, location=location)
+        _vertex_initialized = True
+
+
+async def _rate_limit() -> bool:
+    """Global rate limiter — max 1 Gemini call per 5 seconds.
+
+    If the minimum interval has elapsed, returns True immediately.
+    Otherwise waits up to 5s for the lock, then checks again.
+    If still too soon, returns False — caller should skip/fallback.
+
+    Returns:
+        True if caller may proceed, False if rate-limited.
+    """
+    global _last_gemini_call
+    async with _gemini_lock:
+        now = time.monotonic()
+        elapsed = now - _last_gemini_call
+        if elapsed >= _GEMINI_MIN_INTERVAL:
+            _last_gemini_call = now
+            return True
+        # Wait for the remaining time, then retry once
+        wait_time = _GEMINI_MIN_INTERVAL - elapsed
+        logger.info("Rate limit: waiting %.1fs before Gemini call", wait_time)
+        await asyncio.sleep(wait_time)
+        # Retry check after waiting
+        now = time.monotonic()
+        elapsed = now - _last_gemini_call
+        if elapsed >= _GEMINI_MIN_INTERVAL:
+            _last_gemini_call = now
+            return True
+        # Still rate-limited — skip
+        logger.warning("Rate limit hit: skipping Gemini call (only %.1fs since last)", elapsed)
+        return False
 
 
 def _get_model():
-    """Lazy-init Gemini model singleton."""
+    """Lazy-init Vertex AI Gemini model singleton."""
     global _model
     if _model is None:
-        genai.configure(api_key=settings.gemini_api_key)
-        _model = genai.GenerativeModel("models/gemini-2.5-flash")
+        _init_vertex()
+        _model = GenerativeModel("gemini-2.0-flash")
     return _model
 
 
@@ -152,11 +208,16 @@ async def analyse_frame_structured(jpeg_bytes: bytes) -> dict:
         OR empty dict {} if confidence < 0.6 (silent discard).
     """
     try:
+        # ── Global rate limit check ────────────────────────────
+        if not await _rate_limit():
+            logger.warning("Rate limited: skipping analyse_frame_structured")
+            return dict(STRUCTURED_ANALYSIS_FALLBACK)
+
         model = _get_model()
 
         # First attempt
         response = await model.generate_content_async(
-            [STRUCTURED_ANALYSIS_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
         result = _parse_json(response.text, {})
 
@@ -170,8 +231,11 @@ async def analyse_frame_structured(jpeg_bytes: bytes) -> dict:
 
         # First attempt failed validation — retry once
         logger.warning("Structured analysis failed validation, retrying once...")
+        if not await _rate_limit():
+            logger.warning("Rate limited: skipping retry for analyse_frame_structured")
+            return dict(STRUCTURED_ANALYSIS_FALLBACK)
         response = await model.generate_content_async(
-            [STRUCTURED_ANALYSIS_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
         result = _parse_json(response.text, {})
 
@@ -455,9 +519,14 @@ async def analyse_frame(jpeg_bytes: bytes) -> dict:
         "gates_visible": {},
     }
     try:
+        # ── Global rate limit check ────────────────────────────
+        if not await _rate_limit():
+            logger.warning("Rate limited: skipping analyse_frame")
+            return fallback
+
         model = _get_model()
         response = await model.generate_content_async(
-            [LIVE_VISION_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+            [LIVE_VISION_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
         result = _parse_json(response.text, fallback)
         # Ensure all required keys exist
@@ -494,7 +563,7 @@ async def analyse_frame_detailed(jpeg_bytes: bytes) -> dict:
     try:
         model = _get_model()
         response = await model.generate_content_async(
-            [QUERY_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+            [QUERY_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
         result = _parse_json(response.text, fallback)
         for key in fallback:
@@ -524,7 +593,7 @@ async def analyse_shop_entry(jpeg_bytes: bytes) -> dict:
     try:
         model = _get_model()
         response = await model.generate_content_async(
-            [SHOP_ENTRY_PROMPT, {"mime_type": "image/jpeg", "data": jpeg_bytes}]
+            [SHOP_ENTRY_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
         result = _parse_json(response.text, fallback)
         for key in fallback:
@@ -559,6 +628,11 @@ async def make_incident_decision(timeline: list, context: dict) -> dict:
         "follow_up": "",
     }
     try:
+        # ── Global rate limit check ────────────────────────────
+        if not await _rate_limit():
+            logger.warning("Rate limited: skipping make_incident_decision")
+            return fallback
+
         prompt = INCIDENT_DECISION_PROMPT.format(
             camera_name=context.get("camera_name", "unknown"),
             camera_mode=context.get("camera_mode", "unknown"),

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://user:password@localhost:5432/visionos"
 
     # ── AI APIs ─────────────────────────────────────────────────
+    # NOTE: gemini_api_key is DEPRECATED with Vertex AI migration.
+    # Vertex AI uses Application Default Credentials (ADC) on Cloud Run.
+    # The google_cloud_project and google_cloud_region fields below are used instead.
     gemini_api_key: str = ""
     groq_api_key: str = ""
 

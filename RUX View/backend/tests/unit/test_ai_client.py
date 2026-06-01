@@ -1,7 +1,7 @@
 """
 test_ai_client.py — Unit tests for Vision OS AI client.
 
-Tests Gemini vision analysis, incident decision, query answering,
+Tests Vertex AI Gemini vision analysis, incident decision, query answering,
 digest generation, Re-ID tiebreaker, and Groq transcription.
 Uses mocking to avoid real API calls.
 """
@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture
-def mock_gemini_model():
-    """Mock the Gemini GenerativeModel."""
+def mock_vertex_model():
+    """Mock the Vertex AI GenerativeModel."""
     with patch("backend.ai.ai_client._get_model") as mock_get_model:
         mock_model = MagicMock()
         mock_model.generate_content_async = AsyncMock()
@@ -38,10 +38,10 @@ def mock_groq_client():
 
 @pytest.mark.asyncio
 async def test_analyse_frame_returns_required_fields(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that analyse_frame returns all required fields."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "persons": [
                 {
@@ -76,10 +76,10 @@ async def test_analyse_frame_returns_required_fields(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_handles_invalid_response(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that analyse_frame handles invalid JSON gracefully."""
-    mock_gemini_model.generate_content_async.return_value.text = "Not JSON at all"
+    mock_vertex_model.generate_content_async.return_value.text = "Not JSON at all"
 
     from backend.ai.ai_client import analyse_frame
 
@@ -93,10 +93,10 @@ async def test_analyse_frame_handles_invalid_response(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_detailed_prompt_parse(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that detailed analysis parses correctly."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "persons": [
                 {
@@ -142,9 +142,9 @@ async def test_analyse_frame_detailed_prompt_parse(
 
 
 @pytest.mark.asyncio
-async def test_shop_entry_returns_demographics(mock_gemini_model, sample_jpeg_bytes):
+async def test_shop_entry_returns_demographics(mock_vertex_model, sample_jpeg_bytes):
     """Test that shop entry analysis returns demographics."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "gender": "male",
             "age_group": "30s",
@@ -167,9 +167,9 @@ async def test_shop_entry_returns_demographics(mock_gemini_model, sample_jpeg_by
 
 
 @pytest.mark.asyncio
-async def test_incident_decision_parse(mock_gemini_model):
+async def test_incident_decision_parse(mock_vertex_model):
     """Test that incident decision parses correctly."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "threat_level": "HIGH",
             "alert_message": "Intruder detected at front gate",
@@ -207,9 +207,9 @@ async def test_incident_decision_parse(mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_query_answer_format(mock_gemini_model):
+async def test_query_answer_format(mock_vertex_model):
     """Test that query answering returns text."""
-    mock_gemini_model.generate_content_async.return_value.text = (
+    mock_vertex_model.generate_content_async.return_value.text = (
         "The person in the red shirt was seen at 10:30 AM near the front door. "
         "Person ID: PERSON_003."
     )
@@ -229,9 +229,9 @@ async def test_query_answer_format(mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_scene_state_query(mock_gemini_model):
+async def test_scene_state_query(mock_vertex_model):
     """Test that scene state query returns text."""
-    mock_gemini_model.generate_content_async.return_value.text = (
+    mock_vertex_model.generate_content_async.return_value.text = (
         "The front gate is currently open."
     )
 
@@ -249,10 +249,10 @@ async def test_scene_state_query(mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_digest_under_200_words_free_tier(mock_gemini_model):
+async def test_digest_under_200_words_free_tier(mock_vertex_model):
     """Test that free tier digest is limited to 200 words."""
     long_text = "word " * 300
-    mock_gemini_model.generate_content_async.return_value.text = long_text
+    mock_vertex_model.generate_content_async.return_value.text = long_text
 
     from backend.ai.ai_client import generate_daily_digest
 
@@ -265,10 +265,10 @@ async def test_digest_under_200_words_free_tier(mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_digest_business_tier_no_limit(mock_gemini_model):
+async def test_digest_business_tier_no_limit(mock_vertex_model):
     """Test that business tier digest is not limited."""
     long_text = "word " * 300
-    mock_gemini_model.generate_content_async.return_value.text = long_text
+    mock_vertex_model.generate_content_async.return_value.text = long_text
 
     from backend.ai.ai_client import generate_daily_digest
 
@@ -284,9 +284,9 @@ async def test_digest_business_tier_no_limit(mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_reid_tiebreaker_returns_match_bool(mock_gemini_model):
+async def test_reid_tiebreaker_returns_match_bool(mock_vertex_model):
     """Test that Re-ID tiebreaker returns structured result."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "same_person": True,
             "confidence": 0.85,
@@ -313,10 +313,10 @@ async def test_reid_tiebreaker_returns_match_bool(mock_gemini_model):
 
 @pytest.mark.asyncio
 async def test_analyse_frame_structured_returns_valid_schema(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that analyse_frame_structured returns valid structured JSON."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "event_type": "person_entering",
             "threat_level": "LOW",
@@ -340,10 +340,10 @@ async def test_analyse_frame_structured_returns_valid_schema(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_structured_discards_low_confidence(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that confidence < 0.6 returns empty dict (silent discard)."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "event_type": "person_entering",
             "threat_level": "LOW",
@@ -363,11 +363,11 @@ async def test_analyse_frame_structured_discards_low_confidence(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_structured_retries_on_invalid(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that invalid schema triggers a retry, then uses fallback."""
     # First call returns invalid, second returns valid
-    mock_gemini_model.generate_content_async.side_effect = [
+    mock_vertex_model.generate_content_async.side_effect = [
         MagicMock(text="Not valid JSON at all"),
         MagicMock(
             text=json.dumps(
@@ -393,10 +393,10 @@ async def test_analyse_frame_structured_retries_on_invalid(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_structured_fallback_after_retry(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that both attempts failing returns safe default."""
-    mock_gemini_model.generate_content_async.side_effect = [
+    mock_vertex_model.generate_content_async.side_effect = [
         MagicMock(text="Not JSON"),
         MagicMock(text="Still not JSON"),
     ]
@@ -412,10 +412,10 @@ async def test_analyse_frame_structured_fallback_after_retry(
 
 @pytest.mark.asyncio
 async def test_analyse_frame_structured_validates_controlled_vocab(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that invalid event_type triggers retry."""
-    mock_gemini_model.generate_content_async.return_value.text = json.dumps(
+    mock_vertex_model.generate_content_async.return_value.text = json.dumps(
         {
             "event_type": "invalid_type_here",
             "threat_level": "LOW",
@@ -454,10 +454,10 @@ async def test_groq_transcription(mock_groq_client, sample_audio_bytes):
 
 @pytest.mark.asyncio
 async def test_invalid_response_handled_gracefully(
-    mock_gemini_model, sample_jpeg_bytes
+    mock_vertex_model, sample_jpeg_bytes
 ):
     """Test that invalid Gemini responses are handled gracefully."""
-    mock_gemini_model.generate_content_async.side_effect = Exception("API Error")
+    mock_vertex_model.generate_content_async.side_effect = Exception("API Error")
 
     from backend.ai.ai_client import analyse_frame
 
