@@ -64,13 +64,19 @@ jobs:
         run: |
           echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Set image tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          echo "IMAGE_TAG=${TAG:-latest}" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ github.event.inputs.tag }}
+            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.tag.outputs.IMAGE_TAG }}
             us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.git.outputs.SHA }}
 
   deploy:
@@ -100,11 +106,17 @@ jobs:
         run: |
           echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Set image tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          echo "IMAGE_TAG=${TAG:-latest}" >> $GITHUB_OUTPUT
+
       - name: Deploy to Cloud Run
         id: deploy
         run: |
           gcloud run deploy vision-os \
-            --image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ github.event.inputs.tag }} \
+            --image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.tag.outputs.IMAGE_TAG }} \
             --platform=managed \
             --region=us-central1 \
             --allow-unauthenticated \
