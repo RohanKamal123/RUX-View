@@ -51,6 +51,7 @@ COPY alembic/ alembic/
 COPY alembic.ini .
 COPY requirements.txt .
 COPY scripts/ scripts/
+COPY connect/models/ connect/models/
 
 # Create non-root user
 RUN useradd -m -u 1000 visionos && chown -R visionos:visionos /app

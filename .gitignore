@@ -69,9 +69,13 @@ temp/
 
 # ── AI Model Weights (downloaded at runtime) ───────────────
 *.pt
-*.onnx
 *.pb
 models/
+
+# Allow model files needed for deployment in connect/
+!connect/models/
+!connect/models/*.onnx
+!connect/models/*.json
 
 # ── Snapshots (user data) ──────────────────────────────────
 snapshots/
