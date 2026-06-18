@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision OS — AI-Powered CCTV Intelligence for Bangladesh</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0e1a;
+            color: #e0e6f0;
+            line-height: 1.6;
+        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+
+        /* Nav */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #1a2340;
+        }
+        nav .logo { font-size: 22px; font-weight: 700; color: #00d4ff; }
+        nav .logo span { color: #e0e6f0; }
+        nav .nav-links { display: flex; gap: 24px; align-items: center; }
+        nav .nav-links a { color: #8b9bb5; text-decoration: none; font-size: 14px; }
+        nav .nav-links a:hover { color: #00d4ff; }
+        .btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #00d4ff; color: #0a0e1a; }
+        .btn-primary:hover { background: #00b8e6; }
+        .btn-outline { background: transparent; border: 1px solid #00d4ff; color: #00d4ff; }
+        .btn-outline:hover { background: #00d4ff20; }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 80px 0 60px;
+        }
+        .hero h1 {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00d4ff, #b388ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+        }
+        .hero p {
+            font-size: 18px;
+            color: #8b9bb5;
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+        .hero .cta-buttons { display: flex; gap: 16px; justify-content: center; }
+
+        /* Features */
+        .features {
+            padding: 60px 0;
+        }
+        .features h2 {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 40px;
+            color: #c0d0f0;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        @media (max-width: 768px) {
+            .feature-grid { grid-template-columns: 1fr; }
+        }
+        .feature-card {
+            background: #0d1326;
+            border: 1px solid #1a2340;
+            border-radius: 12px;
+            padding: 28px;
+            text-align: center;
+        }
+        .feature-card .icon { font-size: 40px; margin-bottom: 16px; }
+        .feature-card h3 { font-size: 18px; margin-bottom: 8px; }
+        .feature-card p { font-size: 14px; color: #6b7a99; }
+
+        /* Pricing */
+        .pricing {
+            padding: 60px 0;
+        }
+        .pricing h2 {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 40px;
+            color: #c0d0f0;
+        }
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        @media (max-width: 768px) {
+            .pricing-grid { grid-template-columns: 1fr; }
+        }
+        .pricing-card {
+            background: #0d1326;
+            border: 1px solid #1a2340;
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            position: relative;
+        }
+        .pricing-card.popular {
+            border-color: #00d4ff;
+            box-shadow: 0 0 20px #00d4ff20;
+        }
+        .pricing-card.popular .badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #00d4ff;
+            color: #0a0e1a;
+            padding: 4px 16px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .pricing-card .tier-name { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .pricing-card .price { font-size: 36px; font-weight: 800; color: #00d4ff; margin-bottom: 4px; }
+        .pricing-card .price-sub { font-size: 14px; color: #6b7a99; margin-bottom: 20px; }
+        .pricing-card .features-list { list-style: none; margin-bottom: 24px; }
+        .pricing-card .features-list li {
+            padding: 8px 0;
+            font-size: 14px;
+            color: #8b9bb5;
+            border-bottom: 1px solid #1a2340;
+        }
+        .pricing-card .features-list li:last-child { border-bottom: none; }
+        .pricing-card .features-list li::before { content: "✓ "; color: #00e676; }
+
+        /* CTA */
+        .cta-section {
+            text-align: center;
+            padding: 60px 0;
+            border-top: 1px solid #1a2340;
+        }
+        .cta-section h2 { font-size: 28px; margin-bottom: 12px; }
+        .cta-section p { color: #6b7a99; margin-bottom: 24px; }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid #1a2340;
+            padding: 24px 0;
+            text-align: center;
+            color: #6b7a99;
+            font-size: 13px;
+        }
+        footer a { color: #8b9bb5; text-decoration: none; margin: 0 12px; }
+        footer a:hover { color: #00d4ff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Nav -->
+        <nav>
+            <div class="logo">Vision <span>OS</span></div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#pricing">Pricing</a>
+                <a href="/login" class="btn btn-outline">Sign In</a>
+                <a href="/login" class="btn btn-primary">Get Started Free</a>
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <section class="hero">
+            <h1>AI-Powered CCTV Intelligence for Bangladesh</h1>
+            <p>
+                Transform your security cameras into intelligent surveillance with real-time
+                AI detection, smart alerts, and cloud storage — all from your phone.
+            </p>
+            <div class="cta-buttons">
+                <a href="/login" class="btn btn-primary" style="font-size: 16px; padding: 14px 32px;">
+                    Get Started Free
+                </a>
+                <a href="#features" class="btn btn-outline" style="font-size: 16px; padding: 14px 32px;">
+                    Learn More
+                </a>
+            </div>
+        </section>
+
+        <!-- Features -->
+        <section class="features" id="features">
+            <h2>Why Vision OS?</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="icon">🧠</div>
+                    <h3>AI-Powered Detection</h3>
+                    <p>Real-time motion, audio, and person detection using advanced AI models. Know what's happening instantly.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">📱</div>
+                    <h3>Mobile-First Dashboard</h3>
+                    <p>Monitor your cameras from anywhere. Responsive design works perfectly on your phone or desktop.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">🔔</div>
+                    <h3>Smart Alerts</h3>
+                    <p>Get instant Telegram notifications for important events. Never miss a security incident.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">☁️</div>
+                    <h3>Cloud Storage</h3>
+                    <p>All data stored securely in MEGA.nz cloud. 20GB free storage included with every plan.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">🇧🇩</div>
+                    <h3>Bangladesh-Focused</h3>
+                    <p>bKash and Nagad payment support. Bengali language support. Local support team.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">🔒</div>
+                    <h3>Privacy First</h3>
+                    <p>End-to-end encryption. GDPR-compliant data export. Your data belongs to you.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pricing -->
+        <section class="pricing" id="pricing">
+            <h2>Simple, Transparent Pricing</h2>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <div class="tier-name">Free Trial</div>
+                    <div class="price">Free</div>
+                    <div class="price-sub">30 days, no credit card</div>
+                    <ul class="features-list">
+                        <li>Up to 20 cameras</li>
+                        <li>Motion detection</li>
+                        <li>Telegram alerts</li>
+                        <li>7-day event history</li>
+                        <li>MEGA.nz cloud storage</li>
+                    </ul>
+                    <a href="/login" class="btn btn-outline" style="width: 100%;">Start Free Trial</a>
+                </div>
+
+                <div class="pricing-card popular">
+                    <div class="badge">Most Popular</div>
+                    <div class="tier-name">Household</div>
+                    <div class="price">299 BDT</div>
+                    <div class="price-sub">per camera / month</div>
+                    <ul class="features-list">
+                        <li>Up to 20 cameras</li>
+                        <li>AI motion + audio detection</li>
+                        <li>Telegram + SMS alerts</li>
+                        <li>30-day event history</li>
+                        <li>Person recognition</li>
+                        <li>Priority support</li>
+                    </ul>
+                    <a href="/login" class="btn btn-primary" style="width: 100%;">Get Started</a>
+                </div>
+
+                <div class="pricing-card">
+                    <div class="tier-name">Business</div>
+                    <div class="price">499 BDT</div>
+                    <div class="price-sub">per camera / month</div>
+                    <ul class="features-list">
+                        <li>Up to 20 cameras</li>
+                        <li>All AI features</li>
+                        <li>All alert channels</li>
+                        <li>90-day event history</li>
+                        <li>Advanced analytics</li>
+                        <li>Admin dashboard</li>
+                        <li>Dedicated support</li>
+                    </ul>
+                    <a href="/login" class="btn btn-primary" style="width: 100%;">Contact Sales</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="cta-section">
+            <h2>Ready to Secure Your Property?</h2>
+            <p>Join hundreds of users across Bangladesh protecting their homes and businesses.</p>
+            <a href="/login" class="btn btn-primary" style="font-size: 16px; padding: 14px 32px;">
+                Get Started Free
+            </a>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Service</a>
+                <a href="#">Help Center</a>
+                <a href="#">Contact Us</a>
+            </p>
+            <p style="margin-top: 12px;">&copy; 2026 Vision OS. Made in Bangladesh.</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Settings</h2>
+</div>
+
+<!-- ── Account Settings ────────────────────────────────────── -->
+<div class="settings-section">
+  <h3 class="section-title">Account</h3>
+  <div class="settings-card">
+    <div class="form-group">
+      <label for="account-name">Display Name</label>
+      <input type="text" id="account-name" class="form-input" value="{{ user.name or user.email }}" placeholder="Your name">
+    </div>
+    <div class="form-group">
+      <label for="account-email">Email</label>
+      <input type="email" id="account-email" class="form-input" value="{{ user.email }}" placeholder="Your email" disabled>
+    </div>
+    <div class="form-group">
+      <label for="account-tier">Current Tier</label>
+      <input type="text" id="account-tier" class="form-input" value="{{ profile.tier if profile else 'free' }}" disabled>
+    </div>
+    <button class="btn btn-primary" onclick="saveAccountSettings()">Save Changes</button>
+  </div>
+</div>
+
+<!-- ── Notification Preferences ────────────────────────────── -->
+<div class="settings-section">
+  <h3 class="section-title">Notifications</h3>
+  <div class="settings-card">
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">Telegram Alerts</span>
+        <span class="toggle-desc">Receive motion alerts via Telegram</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="notif-telegram" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">Email Alerts</span>
+        <span class="toggle-desc">Receive daily digest and critical alerts via email</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="notif-email" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">SMS Alerts</span>
+        <span class="toggle-desc">Receive SMS for high-priority events (Business tier)</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="notif-sms" {% if profile and profile.tier == 'business' %}checked{% endif %} {% if not profile or profile.tier != 'business' %}disabled{% endif %}>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- ── Detection Settings ──────────────────────────────────── -->
+<div class="settings-section">
+  <h3 class="section-title">Detection</h3>
+  <div class="settings-card">
+    <div class="form-group">
+      <label for="detect-sensitivity">Motion Sensitivity</label>
+      <div class="range-row">
+        <input type="range" id="detect-sensitivity" min="1" max="10" value="5" class="range-input"
+               oninput="document.getElementById('sensitivity-value').textContent = this.value">
+        <span id="sensitivity-value" class="range-value">5</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="detect-cooldown">Alert Cooldown (seconds)</label>
+      <input type="number" id="detect-cooldown" class="form-input" value="30" min="5" max="300" style="width:120px;">
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">Person Detection</span>
+        <span class="toggle-desc">AI-powered person detection on all cameras</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="detect-person" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <span class="toggle-label">Audio Detection</span>
+        <span class="toggle-desc">Detect glass break, alarms, and voice</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="detect-audio" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- ── Display Settings ────────────────────────────────────── -->
+<div class="settings-section">
+  <h3 class="section-title">Display</h3>
+  <div class="settings-card">
+    <div class="form-group">
+      <label for="display-timezone">Timezone</label>
+      <select id="display-timezone" class="form-select">
+        <option value="Asia/Dhaka">Asia/Dhaka (UTC+6)</option>
+        <option value="Asia/Kolkata">Asia/Kolkata (UTC+5:30)</option>
+        <option value="UTC">UTC</option>
+        <option value="America/New_York">America/New_York (UTC-5)</option>
+        <option value="Europe/London">Europe/London (UTC+0)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="display-language">Language</label>
+      <select id="display-language" class="form-select">
+        <option value="en">English</option>
+        <option value="bn">বাংলা (Bengali)</option>
+        <option value="hi">हिन्दी (Hindi)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="display-theme">Theme</label>
+      <select id="display-theme" class="form-select">
+        <option value="dark">Dark (Default)</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- ── Save Button ─────────────────────────────────────────── -->
+<div class="settings-section">
+  <button class="btn btn-primary btn-lg" onclick="saveAllSettings()">Save All Settings</button>
+  <span id="settings-status" style="margin-left:12px;font-size:13px;color:#00e676;"></span>
+</div>
+
+<script>
+function saveAccountSettings() {
+  const nameInput = document.getElementById('account-name');
+  if (!nameInput) return;
+  const name = nameInput.value.trim();
+  if (!name) { alert('Please enter a display name.'); return; }
+
+  fetch('/api/users/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: name }),
+  })
+    .then(r => r.ok ? alert('Account settings saved.') : r.json().then(d => alert('Error: ' + (d.detail || 'Failed'))))
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function saveAllSettings() {
+  const status = document.getElementById('settings-status');
+  status.textContent = 'Saving...';
+
+  // Save account name
+  const name = document.getElementById('account-name')?.value.trim();
+  if (name) {
+    fetch('/api/users/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name }),
+    }).catch(() => {});
+  }
+
+  status.textContent = 'All settings saved!';
+  setTimeout(() => { status.textContent = ''; }, 3000);
+}
+</script>
+
+<style>
+.settings-section { margin-bottom: 28px; }
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #c0d0f0;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1a2340;
+}
+.settings-card {
+  background: #0d1326;
+  border: 1px solid #1a2340;
+  border-radius: 10px;
+  padding: 20px;
+}
+.form-group { margin-bottom: 16px; }
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8b9bb5;
+  margin-bottom: 6px;
+}
+.form-input, .form-select {
+  width: 100%;
+  max-width: 400px;
+  padding: 8px 12px;
+  background: #141b33;
+  border: 1px solid #1a2340;
+  border-radius: 6px;
+  color: #e0e6f0;
+  font-size: 14px;
+}
+.form-input:focus, .form-select:focus { outline: none; border-color: #00d4ff; }
+.form-input:disabled { opacity: 0.6; }
+
+/* Toggle Switch */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #1a2340;
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-info { flex: 1; }
+.toggle-label { display: block; font-size: 14px; font-weight: 500; color: #e0e6f0; }
+.toggle-desc { display: block; font-size: 12px; color: #6b7a99; margin-top: 2px; }
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #1a2340;
+  border-radius: 24px;
+  transition: 0.3s;
+}
+.toggle-slider:before {
+  content: "";
+  position: absolute;
+  height: 18px; width: 18px;
+  left: 3px; bottom: 3px;
+  background: #6b7a99;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #00d4ff40; }
+.toggle-switch input:checked + .toggle-slider:before { background: #00d4ff; transform: translateX(20px); }
+.toggle-switch input:disabled + .toggle-slider { opacity: 0.4; cursor: not-allowed; }
+
+/* Range Slider */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.range-input {
+  width: 200px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #1a2340;
+  border-radius: 3px;
+  outline: none;
+}
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  background: #00d4ff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.range-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #00d4ff;
+  min-width: 24px;
+}
+.btn-lg { padding: 10px 28px; font-size: 15px; }
+</style>
+{% endblock %}

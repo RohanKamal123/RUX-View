@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-sqlmodel
-apscheduler
-httpx
-beautifulsoup4
-google-generativeai
-python-dotenv

@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-title">Dashboard</div>
+  <div class="page-header-right">
+    <span class="pill">{{ user.get('email', '') if user else '' }}</span>
+    <span class="pill">{{ tier | default('free') | title }}</span>
+  </div>
+</div>
+
+{% if error %}
+<div style="background:var(--red-bg);border:0.5px solid rgba(163,45,45,0.2);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--red-text);">
+  {{ error }}
+</div>
+{% endif %}
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Cameras</div>
+    <div class="stat-value">{{ camera_count }}</div>
+    <div class="stat-sub">{{ cameras_online }} online · {{ cameras_offline }} offline</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Events today</div>
+    <div class="stat-value">{{ events_today_count }}</div>
+    <div class="stat-sub">{{ alerts_sent }} alerts sent</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">High threat</div>
+    <div class="stat-value">{{ high_threat_count }}</div>
+    <div class="stat-sub">last 24 hours</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">System health</div>
+    <div class="stat-value" id="health-pct">{{ "%.0f"|format((cameras_online / camera_count * 100) if camera_count > 0 else 100) }}%</div>
+    <div class="stat-sub">{{ cameras_online }}/{{ camera_count }} online</div>
+  </div>
+</div>
+
+<!-- Camera status + events -->
+<div class="content-grid">
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Camera status</span>
+      <a href="/dashboard/cameras" class="card-link">Manage →</a>
+    </div>
+    <div class="cam-grid">
+      {% for cam in cameras[:9] %}
+      <div class="cam-item">
+        <div class="cam-dot {% if cam.is_active %}online{% else %}offline{% endif %}"></div>
+        <div>
+          <div class="cam-name">{{ cam.name }}</div>
+          <div class="cam-mode">{{ cam.mode | title }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state" style="grid-column:1/-1;">
+        <i class="ti ti-camera-off" aria-hidden="true"></i>
+        <p>No cameras yet. <a href="/dashboard/cameras">Add one →</a></p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Recent events</span>
+      <a href="/dashboard/events" class="card-link">View all →</a>
+    </div>
+    <div class="event-feed" id="event-feed">
+      {% for event in recent_events[:6] %}
+      <div class="event-row">
+        <div class="event-bar {{ event.threat_level | lower }}"></div>
+        <div class="event-body">
+          <div class="event-top">
+            <span class="event-cam">
+              {{ event.camera_name or event.camera_id }}
+              <span class="badge badge-{{ event.threat_level | lower }}">{{ event.threat_level }}</span>
+            </span>
+            <span class="event-time">{{ event.created_at[:16] | replace('T',' ') if event.created_at else '' }}</span>
+          </div>
+          <div class="event-desc">{{ event.alert_message or 'No description' }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <i class="ti ti-bell-off" aria-hidden="true"></i>
+        <p>No events yet</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Central Intelligence Summary -->
+<div class="intel-summary">
+  <div class="intel-summary-head">
+    <i class="ti ti-brain" style="font-size:16px;color:var(--purple-text);" aria-hidden="true"></i>
+    <span class="intel-summary-title">Central intelligence</span>
+  </div>
+  <div class="intel-summary-grid">
+    <div class="intel-stat">
+      <div class="intel-stat-value" id="intel-persons">{{ intel_persons | default(0) }}</div>
+      <div class="intel-stat-label">Persons tracked</div>
+    </div>
+    <div class="intel-stat">
+      <div class="intel-stat-value" id="intel-journeys">{{ intel_journeys | default(0) }}</div>
+      <div class="intel-stat-label">Cross-camera journeys</div>
+    </div>
+    <div class="intel-stat">
+      <div class="intel-stat-value" id="intel-correlations">{{ intel_correlations | default(0) }}</div>
+      <div class="intel-stat-label">Re-ID correlations</div>
+    </div>
+  </div>
+  <div class="intel-assessment">
+    {{ intel_assessment | default('No significant activity detected in the last 24 hours. All cameras operating normally.') }}
+  </div>
+</div>
+
+<!-- Timeline -->
+<div class="card timeline-section">
+  <div class="card-head">
+    <span class="card-title">Event timeline</span>
+    <div class="timeline-controls">
+      <select class="tl-cam-select" id="tl-cam-select">
+        <option value="all">All cameras</option>
+        {% for cam in cameras %}
+        <option value="{{ cam.camera_id }}">{{ cam.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="tl-btn active" data-range="2h">2h</button>
+      <button class="tl-btn" data-range="6h">6h</button>
+      <button class="tl-btn" data-range="24h">24h</button>
+    </div>
+  </div>
+
+  <div class="tl-col-heads">
+    <div class="tl-col-head right">Analysis · movement</div>
+    <div class="tl-col-head" style="text-align:center;">time</div>
+    <div class="tl-col-head">Detections · identity</div>
+  </div>
+
+  <div class="tl-body" id="tl-body">
+    <div class="tl-left" id="tl-left"></div>
+
+    <div class="tl-axis" id="tl-axis">
+      <div class="tl-axis-time" id="tl-time-start">--:--</div>
+      <div class="tl-axis-line" id="tl-axis-line"></div>
+      <div class="tl-axis-time" id="tl-time-end">--:--</div>
+    </div>
+
+    <div class="tl-right" id="tl-right"></div>
+  </div>
+
+  <div id="tl-empty" class="empty-state" style="display:none;">
+    <i class="ti ti-timeline" aria-hidden="true"></i>
+    <p>No events in this time range</p>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Stats auto-refresh ───────────────────────────────────────
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/dashboard/stats', {
+      headers: { 'Authorization': 'Bearer dev-token' }
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const cards = document.querySelectorAll('.stat-value');
+    if (cards[0]) cards[0].textContent = d.camera_count ?? 0;
+    if (cards[1]) cards[1].textContent = d.events_today ?? 0;
+    if (cards[3]) {
+      const pct = d.camera_count > 0
+        ? Math.round((d.cameras_online / d.camera_count) * 100)
+        : 100;
+      cards[3].textContent = pct + '%';
+    }
+  } catch(e) {}
+}, 10000);
+
+// ── Event feed refresh ───────────────────────────────────────
+function fmtTime(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  const i = s.indexOf('T');
+  return i >= 0 ? s.substring(i+1, i+6) : s.substring(11, 16);
+}
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>');
+}
+function buildRow(ev) {
+  const threat = (ev.threat_level || 'pending').toLowerCase();
+  const cam = ev.camera_name || ev.camera_id || 'Camera';
+  const desc = ev.alert_message || 'No description';
+  const time = fmtTime(ev.timestamp_start || ev.created_at);
+  const live = !ev.timestamp_end;
+  return `<div class="event-row" data-id="${escHtml(ev.event_id)}">
+    <div class="event-bar ${threat}"></div>
+    <div class="event-body">
+      <div class="event-top">
+        <span class="event-cam">${escHtml(cam)} <span class="badge badge-${threat}">${escHtml(ev.threat_level||'')}</span></span>
+        <span class="event-time">${live ? '<span class="live-chip"><span class="live-dot"></span>Live</span>' : escHtml(time)}</span>
+      </div>
+      <div class="event-desc">${escHtml(desc)}</div>
+    </div>
+  </div>`;
+}
+
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/events?limit=6', {
+      headers: { 'Authorization': 'Bearer dev-token' }
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const feed = document.getElementById('event-feed');
+    if (!feed || !d.events?.length) return;
+    feed.innerHTML = d.events.map(buildRow).join('');
+  } catch(e) {}
+}, 8000);
+
+// ── Timeline ─────────────────────────────────────────────────
+const tlLeft  = document.getElementById('tl-left');
+const tlRight = document.getElementById('tl-right');
+const tlLine  = document.getElementById('tl-axis-line');
+const tlEmpty = document.getElementById('tl-empty');
+const tlStart = document.getElementById('tl-time-start');
+const tlEnd   = document.getElementById('tl-time-end');
+
+let tlRange = '2h';
+let tlCam   = 'all';
+
+document.querySelectorAll('.tl-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tl-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    tlRange = btn.dataset.range;
+    loadTimeline();
+  });
+});
+document.getElementById('tl-cam-select')?.addEventListener('change', e => {
+  tlCam = e.target.value;
+  loadTimeline();
+});
+
+function threatClass(t) {
+  const m = { LOW:'low', MEDIUM:'medium', HIGH:'high', CRITICAL:'high' };
+  return m[(t||'').toUpperCase()] || 'low';
+}
+
+function buildAnalysis(ev, idx, total) {
+  const tc = threatClass(ev.threat_level);
+  const dur = ev.duration_sec ? `${ev.duration_sec}s` : '—';
+  const frames = ev.details?.frame_count || 0;
+  return `<div class="tl-analysis ${tc}">
+    <div class="tl-card-label">${escHtml(ev.event_type||'motion')} · ${escHtml(ev.threat_level||'')}</div>
+    <div class="tl-card-main">${escHtml(ev.alert_message ? ev.alert_message.substring(0,60)+'…' : 'Motion detected')}</div>
+    <div class="tl-chips right">
+      <span class="tl-chip"><i class="ti ti-clock" aria-hidden="true"></i> ${dur}</span>
+      ${frames ? `<span class="tl-chip"><i class="ti ti-camera" aria-hidden="true"></i> ${frames}f</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function buildDetection(ev) {
+  const isLive = !ev.timestamp_end;
+  const persons = ev.person_ids?.length || 0;
+  return `<div class="tl-detection">
+    <div class="tl-det-row">
+      <div class="tl-avatar"><i class="ti ti-user" aria-hidden="true"></i></div>
+      <div>
+        <div class="tl-det-id">${persons ? persons + ' person' + (persons>1?'s':'') + ' detected' : 'Detection'}</div>
+        <div class="tl-det-meta">${escHtml(ev.camera_name || ev.camera_id || '')} · ${fmtTime(ev.timestamp_start)}</div>
+      </div>
+    </div>
+    <div class="tl-tags">
+      ${isLive ? '<span class="tl-tag threat">Live</span>' : ''}
+      <span class="tl-tag">${escHtml(ev.threat_level||'LOW')}</span>
+    </div>
+  </div>`;
+}
+
+function placeNodes(events, axisHeight) {
+  const line = document.getElementById('tl-axis-line');
+  line.querySelectorAll('.tl-node').forEach(n => n.remove());
+  if (!events.length) return;
+
+  const times = events.map(e => Date.parse(e.timestamp_start)).filter(Boolean);
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  const range = maxT - minT || 1;
+
+  events.forEach(ev => {
+    const t = Date.parse(ev.timestamp_start);
+    if (!t) return;
+    const pct = (t - minT) / range;
+    const top = Math.round(pct * axisHeight);
+    const node = document.createElement('div');
+    node.className = `tl-node ${threatClass(ev.threat_level)}`;
+    node.style.top = top + 'px';
+    line.appendChild(node);
+  });
+}
+
+async function loadTimeline() {
+  try {
+    const hours = parseInt(tlRange) || 2;
+    const limit = hours <= 2 ? 10 : hours <= 6 ? 20 : 40;
+    const camParam = tlCam !== 'all' ? `&camera_id=${tlCam}` : '';
+    const r = await fetch(`/api/events?limit=${limit}${camParam}`, {
+      headers: { 'Authorization': 'Bearer dev-token' }
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const events = d.events || [];
+
+    if (!events.length) {
+      tlLeft.innerHTML = '';
+      tlRight.innerHTML = '';
+      tlLine.querySelectorAll('.tl-node').forEach(n => n.remove());
+      tlEmpty.style.display = 'block';
+      return;
+    }
+    tlEmpty.style.display = 'none';
+
+    // Time range labels
+    const times = events.map(e => Date.parse(e.timestamp_start)).filter(Boolean);
+    const minT = Math.min(...times);
+    const maxT = Math.max(...times);
+    const fmt = iso => { const d = new Date(iso); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+    tlStart.textContent = fmt(new Date(minT));
+    tlEnd.textContent   = fmt(new Date(maxT));
+
+    // Build left (analysis) and right (detection) columns
+    let leftHtml  = '';
+    let rightHtml = '';
+
+    events.forEach((ev, i) => {
+      leftHtml  += buildAnalysis(ev, i, events.length);
+      rightHtml += buildDetection(ev);
+      if (i < events.length - 1) {
+        leftHtml  += '<div class="tl-spacer-sm"></div>';
+        rightHtml += '<div class="tl-spacer-sm"></div>';
+      }
+    });
+
+    tlLeft.innerHTML  = leftHtml;
+    tlRight.innerHTML = rightHtml;
+
+    // Place axis nodes
+    requestAnimationFrame(() => {
+      const axisHeight = tlLine.offsetHeight - 16;
+      placeNodes(events, axisHeight > 0 ? axisHeight : 300);
+    });
+
+  } catch(e) { console.error('Timeline load failed:', e); }
+}
+
+// Initial load
+loadTimeline();
+setInterval(loadTimeline, 15000);
+</script>
+{% endblock %}

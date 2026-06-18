@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vision OS — {% block title %}Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/style.css?v=2">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-name">Vision OS</div>
+        <div class="sidebar-logo-sub">AI camera intelligence</div>
+      </div>
+      <ul class="nav-links">
+        <li>
+          <a href="/dashboard" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">
+            <i class="ti ti-layout-dashboard" aria-hidden="true"></i> Dashboard
+          </a>
+        </li>
+        <li>
+          <a href="/dashboard/cameras" class="nav-link {% if active_page == 'cameras' %}active{% endif %}">
+            <i class="ti ti-camera" aria-hidden="true"></i> Cameras
+          </a>
+        </li>
+        <li>
+          <a href="/dashboard/events" class="nav-link {% if active_page == 'events' %}active{% endif %}">
+            <i class="ti ti-bell" aria-hidden="true"></i> Events
+          </a>
+        </li>
+        <li>
+          <a href="/dashboard/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">
+            <i class="ti ti-settings" aria-hidden="true"></i> Settings
+          </a>
+        </li>
+        <li>
+          <a href="/dashboard/billing" class="nav-link {% if active_page == 'billing' %}active{% endif %}">
+            <i class="ti ti-credit-card" aria-hidden="true"></i> Billing
+          </a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        {% if user %}
+          <span>{{ user.tier | default('free') }}</span>
+          <button class="logout-btn" onclick="window.location.href='/login'">Sign out</button>
+        {% endif %}
+      </div>
+    </nav>
+
+    <main class="content" id="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="/static/app.js?v=2"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

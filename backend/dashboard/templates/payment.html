@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Payment{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Payment & Subscription</h2>
+</div>
+
+<div class="payment-current-plan">
+  <h3 class="section-title">Current Plan</h3>
+  <div class="plan-card plan-{{ user.tier }}">
+    <div class="plan-header">
+      <span class="tier-badge tier-{{ user.tier }}">{{ user.tier|capitalize }}</span>
+      <span class="plan-price">
+        {% if user.tier == "free" %}
+          Free Trial
+        {% elif user.tier == "household" %}
+          299 BDT/camera/month
+        {% elif user.tier == "business" %}
+          499 BDT/camera/month
+        {% endif %}
+      </span>
+    </div>
+    <div class="plan-features">
+      {% if user.tier == "free" %}
+      <ul>
+        <li>&#x2705; Up to 20 cameras</li>
+        <li>&#x2705; 30 days free trial</li>
+        <li>&#x2705; All modes</li>
+        <li>&#x2705; Telegram alerts</li>
+        <li>&#x2705; Person detection</li>
+      </ul>
+      {% elif user.tier == "household" %}
+      <ul>
+        <li>&#x2705; Up to 20 cameras</li>
+        <li>&#x2705; 299 BDT/camera/month</li>
+        <li>&#x2705; All modes</li>
+        <li>&#x2705; Unlimited Telegram alerts</li>
+        <li>&#x2705; Person Re-ID</li>
+        <li>&#x2705; Cross-camera tracking</li>
+        <li>&#x2705; NL Queries</li>
+      </ul>
+      {% elif user.tier == "business" %}
+      <ul>
+        <li>&#x2705; Up to 20 cameras</li>
+        <li>&#x2705; 499 BDT/camera/month</li>
+        <li>&#x2705; All modes + Shop analytics</li>
+        <li>&#x2705; Unlimited Telegram alerts</li>
+        <li>&#x2705; Person Re-ID + Staff filter</li>
+        <li>&#x2705; Cross-camera tracking</li>
+        <li>&#x2705; NL Queries</li>
+        <li>&#x2705; SMS fallback</li>
+        <li>&#x2705; Weekly reports</li>
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="payment-upgrade">
+  <h3 class="section-title">Upgrade Your Plan</h3>
+  <div class="pricing-table">
+    <div class="pricing-card {% if user.tier == 'household' %}pricing-current{% endif %}">
+      <h4>Household</h4>
+      <p class="pricing-amount">299 BDT<span>/camera/month</span></p>
+      <ul class="pricing-features">
+        <li>Up to 20 cameras</li>
+        <li>299 BDT/camera/month</li>
+        <li>All modes</li>
+        <li>Unlimited alerts</li>
+        <li>Person Re-ID</li>
+        <li>NL Queries</li>
+      </ul>
+      {% if user.tier == "free" %}
+      <button class="btn btn-primary btn-full" onclick="showPaymentInstructions('household', 299)">Upgrade to Household</button>
+      {% else %}
+      <span class="pricing-current-label">Current Plan</span>
+      {% endif %}
+    </div>
+    <div class="pricing-card pricing-featured {% if user.tier == 'business' %}pricing-current{% endif %}">
+      <div class="pricing-badge">Best Value</div>
+      <h4>Business</h4>
+      <p class="pricing-amount">499 BDT<span>/camera/month</span></p>
+      <ul class="pricing-features">
+        <li>Up to 20 cameras</li>
+        <li>499 BDT/camera/month</li>
+        <li>All modes + Shop analytics</li>
+        <li>Unlimited alerts + SMS</li>
+        <li>Staff filter</li>
+        <li>Weekly reports</li>
+      </ul>
+      {% if user.tier != "business" %}
+      <button class="btn btn-primary btn-full" onclick="showPaymentInstructions('business', 499)">Upgrade to Business</button>
+      {% else %}
+      <span class="pricing-current-label">Current Plan</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="payment-instructions" id="payment-instructions" style="display: none;">
+  <h3 class="section-title">Payment Instructions</h3>
+  <div class="instructions-card">
+    <div class="payment-methods">
+      <div class="payment-method">
+        <h4>bKash</h4>
+        <p class="payment-number">01751549994</p>
+        <p class="payment-holder">Account Holder: Rohan Kamal</p>
+      </div>
+      <div class="payment-method">
+        <h4>Nagad</h4>
+        <p class="payment-number">01751549994</p>
+        <p class="payment-holder">Account Holder: Rohan Kamal</p>
+      </div>
+    </div>
+    <div class="instructions-steps">
+      <ol>
+        <li>Send the exact amount to the bKash or Nagad number above</li>
+        <li>Enter your transaction ID below and click Submit</li>
+        <li>Your tier will be upgraded within 24 hours after verification</li>
+      </ol>
+    </div>
+    <div class="payment-trx-form">
+      <input type="hidden" id="payment-tier" value="">
+      <input type="hidden" id="payment-amount" value="">
+      <div class="form-group">
+        <label for="trx-id">Transaction ID</label>
+        <input type="text" id="trx-id" class="form-input" placeholder="e.g. BKASH-ABC123" required>
+      </div>
+      <div class="form-group">
+        <label for="payment-method-select">Payment Method</label>
+        <select id="payment-method-select" class="form-input">
+          <option value="bkash">bKash</option>
+          <option value="nagad">Nagad</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitTransactionId()">Submit Transaction ID</button>
+      <p id="payment-submit-status" style="margin-top: 0.75rem; font-size: 0.875rem;"></p>
+    </div>
+  </div>
+</div>
+
+{% if payments %}
+<div class="payment-history">
+  <h3 class="section-title">Payment History</h3>
+  <table class="billing-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Tier</th>
+        <th>Amount</th>
+        <th>Transaction ID</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else 'N/A' }}</td>
+        <td>{{ p.tier }}</td>
+        <td>BDT {{ p.amount_bdt }}</td>
+        <td>{{ p.transaction_id }}</td>
+        <td><span class="status-badge status-{{ p.status }}">{{ p.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

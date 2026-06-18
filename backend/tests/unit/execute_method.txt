@@ -1,0 +1,25 @@
+async def execute(self, stmt):
+                # session.execute() returns a Result-like object
+                result = MagicMock()
+                stmt_str = str(stmt)
+                if "api_keys" in stmt_str:
+                    if "is_active" in stmt_str:
+                        # Filter for active=True
+                        active_keys = [k["model"] for k in self.stored_keys if getattr(k["model"], "is_active", True)]
+                        result.scalar_one_or_none = MagicMock(side_effect=lambda: active_keys[0] if active_keys else None)
+                        result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(side_effect=lambda: active_keys)))
+                    else:
+                        result.scalar_one_or_none = MagicMock(
+                            side_effect=lambda: self.stored_keys[0]["model"] if self.stored_keys else None)
+                        result.scalars = MagicMock(
+                            return_value=MagicMock(
+                                all=MagicMock(side_effect=lambda: [k["model"] for k in self.stored_keys])))
+                elif "api_key_usage" in stmt_str:
+                    result = MagicMock()
+                    result.scalars = MagicMock(
+                        return_value=MagicMock(
+                            all=MagicMock(side_effect=lambda: list(self.usage_records))))
+                else:
+                    result.scalar_one_or_none.return_value = None
+                    result.scalars.return_value.all.return_value = []
+                return result

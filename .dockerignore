@@ -1,0 +1,61 @@
+# ──────────────────────────────────────────────────────────────
+# Vision OS — .dockerignore
+# Prevents local artifacts from bloating the Docker image
+# ──────────────────────────────────────────────────────────────
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.production
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Local development artifacts
+connect/
+android/
+ios/
+test_*
+*.bat
+*.ps1
+*.spec
+
+# Documentation (not needed at runtime)
+doc/
+*.md
+
+# Infrastructure configs (not needed at runtime)
+infrastructure/
+
+# Alembic versions (migrations run separately)
+alembic/versions/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

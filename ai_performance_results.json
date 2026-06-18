@@ -1,0 +1,186 @@
+{
+  "timestamp": "2026-06-02 04:44:24",
+  "adc_initialization": true,
+  "image_analysis": {
+    "frame_01_195255.jpg_Structured Analysis": {
+      "success": true,
+      "duration": 8.141330242156982,
+      "result_summary": {
+        "event_type": "unknown",
+        "threat_level": "LOW",
+        "confidence": 0.9,
+        "description": "A single person is visible indoors, appearing to b"
+      }
+    },
+    "frame_01_195255.jpg_Detailed Analysis": {
+      "success": true,
+      "duration": 12.938944101333618,
+      "result_summary": {
+        "person_count": 1,
+        "scene_description": "N/A",
+        "anomalies": []
+      }
+    },
+    "frame_01_195255.jpg_Fast Analysis": {
+      "success": true,
+      "duration": 18.8520610332489,
+      "result_summary": {
+        "person_count": 1,
+        "scene_alerts": [
+          "low light conditions",
+          "unusual camera angle",
+          "subject too close to camera"
+        ],
+        "vehicles": []
+      }
+    },
+    "frame_01_195255.jpg_Second Pass Analysis": {
+      "success": true,
+      "duration": 8.853301048278809,
+      "result_summary": "Unknown test type"
+    },
+    "frame_01_195255.jpg_Shop Entry Analysis": {
+      "success": true,
+      "duration": 4.900678396224976,
+      "result_summary": {
+        "gender": "male",
+        "age_group": "20s",
+        "confidence": 0.8
+      }
+    },
+    "frame_02_195319.jpg_Structured Analysis": {
+      "success": true,
+      "duration": 17.522373914718628,
+      "result_summary": {
+        "event_type": "unknown",
+        "threat_level": "LOW",
+        "confidence": 0.9,
+        "description": "A person is observed stationary indoors, looking t"
+      }
+    },
+    "frame_02_195319.jpg_Detailed Analysis": {
+      "success": true,
+      "duration": 15.030245065689087,
+      "result_summary": {
+        "person_count": 1,
+        "scene_description": "N/A",
+        "anomalies": [
+          "extreme underexposure of the subject's body and face due to strong overhead artificial light, making detailed identification difficult",
+          "unusual camera angle (tilted 90 degrees clockwise) suggesting a close-up or selfie shot from a reclining position"
+        ]
+      }
+    },
+    "frame_02_195319.jpg_Fast Analysis": {
+      "success": true,
+      "duration": 11.702591180801392,
+      "result_summary": {
+        "person_count": 1,
+        "scene_alerts": [],
+        "vehicles": []
+      }
+    },
+    "frame_02_195319.jpg_Second Pass Analysis": {
+      "success": true,
+      "duration": 10.437725067138672,
+      "result_summary": "Unknown test type"
+    },
+    "frame_02_195319.jpg_Shop Entry Analysis": {
+      "success": true,
+      "duration": 6.9961183071136475,
+      "result_summary": {
+        "gender": "male",
+        "age_group": "20s",
+        "confidence": 0.95
+      }
+    },
+    "frame_03_195334.jpg_Structured Analysis": {
+      "success": true,
+      "duration": 3.7988061904907227,
+      "result_summary": {
+        "event_type": "unknown",
+        "threat_level": "LOW",
+        "confidence": 0.95,
+        "description": "The image shows a static indoor scene with a parti"
+      }
+    },
+    "frame_03_195334.jpg_Detailed Analysis": {
+      "success": true,
+      "duration": 14.740284442901611,
+      "result_summary": {
+        "person_count": 0,
+        "scene_description": "N/A",
+        "anomalies": []
+      }
+    },
+    "frame_03_195334.jpg_Fast Analysis": {
+      "success": true,
+      "duration": 2.8043930530548096,
+      "result_summary": {
+        "person_count": 0,
+        "scene_alerts": [],
+        "vehicles": []
+      }
+    },
+    "frame_03_195334.jpg_Second Pass Analysis": {
+      "success": true,
+      "duration": 8.25986623764038,
+      "result_summary": "Unknown test type"
+    },
+    "frame_03_195334.jpg_Shop Entry Analysis": {
+      "success": true,
+      "duration": 10.96701955795288,
+      "result_summary": {
+        "gender": "unknown",
+        "age_group": "unknown",
+        "confidence": 0.0
+      }
+    }
+  },
+  "audio_analysis": {
+    "duration": 5.486130952835083,
+    "result": {
+      "transcript": "",
+      "language": "unknown",
+      "threat_detected": true,
+      "threat_level": "MEDIUM",
+      "confidence": 0.9
+    }
+  },
+  "text_analysis": {
+    "Query Answering": {
+      "success": true,
+      "duration": 1.8109617233276367,
+      "result_summary": "At 10:00:00, a male wearing a red shirt entered the front gate. He then left the property through th..."
+    },
+    "Scene State Query": {
+      "success": true,
+      "duration": 0.7310996055603027,
+      "result_summary": "Yes, the front gate is open."
+    },
+    "Daily Digest Generation": {
+      "success": true,
+      "duration": 2.7260611057281494,
+      "result_summary": "Daily CCTV Security Digest - January 1, 2024\n\nGood morning, here is your security digest for yesterd..."
+    },
+    "Re-ID Tiebreaker": {
+      "success": true,
+      "duration": 2.170959234237671,
+      "result_summary": {
+        "same_person": true,
+        "confidence": 0.95,
+        "reasoning": "The core attributes (gender, age, clothing: blue s"
+      }
+    },
+    "Incident Decision": {
+      "success": true,
+      "duration": 4.6366307735443115,
+      "result_summary": {
+        "threat_level": "LOW",
+        "action": "LOG_ONLY",
+        "alert_message": "An unknown person approached the front gate, which"
+      }
+    }
+  },
+  "rate_limiting": true,
+  "overall_success": true
+}

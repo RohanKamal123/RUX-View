@@ -1,0 +1,82 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["email", "tier"]
+      }
+    },
+    "cameras": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["status", "mode", "enabled"]
+      }
+    },
+    "events": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["timestamp", "type", "camera_id", "severity"]
+      }
+    },
+    "admin": {
+      ".read": "auth.token.admin === true",
+      ".write": "auth.token.admin === true",
+      ".indexOn": ["action", "timestamp"]
+    },
+    "subscriptions": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["tier", "status"]
+      }
+    },
+    "billing": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.token.admin === true",
+        ".indexOn": ["timestamp", "paid"]
+      }
+    },
+    "audit_logs": {
+      ".read": "auth.token.admin === true",
+      ".write": "auth.token.admin === true",
+      ".indexOn": ["action", "timestamp", "actor_id"]
+    },
+    "support_tickets": {
+      "$uid": {
+        ".read": "auth.uid === $uid || auth.token.admin === true",
+        ".write": "auth.uid === $uid || auth.token.admin === true",
+        ".indexOn": ["status", "priority", "category"]
+      }
+    },
+    "feature_flags": {
+      ".read": "auth.token.admin === true",
+      ".write": "auth.token.admin === true",
+      ".indexOn": ["flag_name"]
+    },
+    "webhooks": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["event", "is_active"]
+      }
+    },
+    "locations": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["name"]
+      }
+    },
+    "person_profiles": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        ".indexOn": ["name", "confidence"]
+      }
+    }
+  }
+}
