@@ -38,6 +38,7 @@ Thumbs.db
 
 # Local development artifacts
 connect/
+!connect/models/
 android/
 ios/
 test_*
