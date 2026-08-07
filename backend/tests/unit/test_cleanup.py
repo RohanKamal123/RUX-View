@@ -25,9 +25,22 @@ from backend.storage.cleanup import (
 
 @pytest.fixture
 def mock_db_session():
-    """Create a mock async database session."""
+    """Create a mock async database session.
+
+    session.execute must resolve to a plain MagicMock, not the AsyncMock
+    default: AsyncMock().return_value is itself an AsyncMock, so any
+    unconfigured chain off it (result.scalars().all(), result.rowcount,
+    etc.) silently becomes async too — calling it inline like real
+    SQLAlchemy code does raises "coroutine object has no attribute/is not
+    iterable" instead of exercising the code path. Explicitly returning a
+    MagicMock() here matches real SQLAlchemy Result objects, whose
+    methods are sync.
+    """
     session = AsyncMock()
-    session.execute = AsyncMock()
+    execute_result = MagicMock()
+    execute_result.scalars.return_value.all.return_value = []
+    execute_result.rowcount = 0
+    session.execute = AsyncMock(return_value=execute_result)
     return session
 
 

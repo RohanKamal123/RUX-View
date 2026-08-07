@@ -33,7 +33,7 @@ from fastapi.templating import Jinja2Templates
 from backend.config import settings
 from backend.storage.pg_crud import PostgresCRUD
 from backend.storage.hybrid_crud import HybridCRUD
-from backend.storage.engine import close_db, init_db
+from backend.storage.engine import close_db, create_session, init_db
 from backend.dashboard.auth import init_firebase
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 pg_crud: PostgresCRUD = None  # type: ignore
 hybrid_crud: HybridCRUD = None  # type: ignore
 pipeline_manager: "PipelineManager" = None  # type: ignore
+scheduler: "AsyncIOScheduler" = None  # type: ignore
 
 
 # ── Application Lifespan ────────────────────────────────────────
@@ -169,11 +170,64 @@ async def lifespan(app: FastAPI):
     except Exception as cleanup_err:
         logger.error("Failed to start session cleanup loop: %s", cleanup_err)
 
+    # ── 7. Start APScheduler jobs (daily/weekly digest, retention cleanup) ──
+    # apscheduler has been a declared dependency (requirements.txt) since
+    # early on, and docs across this repo (including CLAUDE.md) describe
+    # these three jobs as already running — none of that was ever true,
+    # nothing instantiated DataCleanup/DigestGenerator or created a
+    # scheduler at all. See CLAUDE.md for the fuller writeup.
+    global scheduler
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from backend.storage.cleanup import DataCleanup
+        from backend.analytics.digest_generator import DigestGenerator
+        from backend.alerts.telegram_client import TelegramClient
+
+        data_cleanup = DataCleanup(db_session_factory=create_session)
+        telegram = TelegramClient(bot_token=settings.telegram_bot_token)
+        digest_generator = DigestGenerator(
+            db_session_factory=create_session,
+            ai_client=None,  # unused — digest text is template-formatted, not Gemini-generated
+            telegram_client=telegram,
+        )
+        app.state.data_cleanup = data_cleanup
+        app.state.digest_generator = digest_generator
+
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            data_cleanup.run_daily_cleanup,
+            CronTrigger(hour=3, minute=0),
+            id="daily_retention_cleanup",
+        )
+        scheduler.add_job(
+            digest_generator.send_daily_digests,
+            CronTrigger(hour=22, minute=0),
+            id="daily_digest",
+        )
+        scheduler.add_job(
+            digest_generator.send_weekly_digests,
+            CronTrigger(day_of_week="mon", hour=8, minute=0),
+            id="weekly_digest",
+        )
+        scheduler.start()
+        app.state.scheduler = scheduler
+        logger.info(
+            "APScheduler started: daily_retention_cleanup (03:00), "
+            "daily_digest (22:00), weekly_digest (Mon 08:00)"
+        )
+    except Exception as sched_err:
+        logger.error("Failed to start APScheduler jobs: %s", sched_err, exc_info=True)
+        scheduler = None
+        app.state.scheduler = None
+
     yield
 
     # Shutdown
     logger.info("Shutting down Vision OS Dashboard...")
     triggers_api.stop_session_cleanup_loop()
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
     if pipeline_manager is not None:
         await pipeline_manager.shutdown()
     await close_db()

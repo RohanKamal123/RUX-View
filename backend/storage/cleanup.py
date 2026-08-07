@@ -115,25 +115,51 @@ class DataCleanup:
 
         return result
 
-    async def delete_expired_events(self) -> int:
-        """Delete events older than retention period for each tier.
+    async def _get_retention_periods(self) -> dict:
+        """Retention days per tier, sourced from config_store when available.
 
-        Free: 7 days
-        Household: 30 days
-        Business: 90 days
+        Falls back to the RETENTION_PERIODS module constants (which match
+        config_store.DEFAULTS) if config_store/Redis is unreachable.
+        """
+        try:
+            from backend.core.config_store import get_config
+            cfg = (await get_config())["values"]
+            return {
+                "free": int(cfg.get("retention_free_days", RETENTION_PERIODS["free"])),
+                "household": int(cfg.get("retention_household_days", RETENTION_PERIODS["household"])),
+                "business": int(cfg.get("retention_business_days", RETENTION_PERIODS["business"])),
+            }
+        except Exception as exc:
+            logger.warning("Failed to read retention config, using defaults: %s", exc)
+            return dict(RETENTION_PERIODS)
+
+    async def _get_transcript_retention_days(self) -> int:
+        """Transcript retention days, sourced from config_store when available."""
+        try:
+            from backend.core.config_store import get_config
+            cfg = (await get_config())["values"]
+            return int(cfg.get("transcript_retention_days", TRANSCRIPT_RETENTION_DAYS))
+        except Exception as exc:
+            logger.warning("Failed to read transcript retention config, using default: %s", exc)
+            return TRANSCRIPT_RETENTION_DAYS
+
+    async def delete_expired_events(self) -> int:
+        """Delete events older than the configured retention period per tier.
+
+        Retention days come from config_store (max_cameras_per_user-style
+        runtime tunables: retention_free_days / retention_household_days /
+        retention_business_days), falling back to RETENTION_PERIODS
+        (free=7, household=30, business=90) if config_store is unreachable.
 
         Returns:
             Number of events deleted.
         """
         total_deleted = 0
+        retention_periods = await self._get_retention_periods()
 
-        for tier, days in RETENTION_PERIODS.items():
+        for tier, days in retention_periods.items():
             cutoff = self._get_cutoff_date(days)
             try:
-                # In production, execute SQL:
-                # DELETE FROM events
-                # WHERE user_id IN (SELECT id FROM users WHERE tier = '{tier}')
-                #   AND timestamp_start < '{cutoff}'
                 deleted = await self._delete_events_for_tier(tier, cutoff)
                 total_deleted += deleted
                 logger.info(
@@ -149,16 +175,19 @@ class DataCleanup:
         return total_deleted
 
     async def delete_expired_transcripts(
-        self, retention_days: int = TRANSCRIPT_RETENTION_DAYS
+        self, retention_days: Optional[int] = None
     ) -> int:
         """Delete audio transcripts older than retention period.
 
         Args:
-            retention_days: Days to keep transcripts (default 3).
+            retention_days: Days to keep transcripts. If not given, read
+                from config_store's transcript_retention_days (default 3).
 
         Returns:
             Number of transcripts deleted.
         """
+        if retention_days is None:
+            retention_days = await self._get_transcript_retention_days()
         cutoff = self._get_cutoff_date(retention_days)
 
         try:
@@ -239,7 +268,8 @@ class DataCleanup:
         Returns:
             Number of days for retention period.
         """
-        return RETENTION_PERIODS.get(tier.lower(), 7)
+        retention_periods = await self._get_retention_periods()
+        return retention_periods.get(tier.lower(), 7)
 
     def _get_cutoff_date(self, days: int) -> datetime:
         """Get cutoff datetime for retention period.
@@ -291,7 +321,8 @@ class DataCleanup:
         }
 
         # Estimate expired events
-        for tier, days in RETENTION_PERIODS.items():
+        retention_periods = await self._get_retention_periods()
+        for tier, days in retention_periods.items():
             cutoff = self._get_cutoff_date(days)
             try:
                 count = await self._count_events_for_tier(tier, cutoff)
@@ -348,7 +379,7 @@ class DataCleanup:
 
         return result
 
-    # ── Database Helper Methods (to be implemented with real SQL) ──
+    # ── Database Helper Methods ─────────────────────────────────
 
     async def _delete_events_for_tier(self, tier: str,
                                       cutoff: datetime) -> int:
@@ -361,45 +392,81 @@ class DataCleanup:
         Returns:
             Number of deleted events.
         """
-        # TODO: Implement with real SQLAlchemy query
-        # async with self.db_session_factory() as session:
-        #     result = await session.execute(
-        #         delete(Event).where(
-        #             Event.user_id.in_(
-        #                 select(User.id).where(User.tier == tier)
-        #             ),
-        #             Event.timestamp_start < cutoff
-        #         )
-        #     )
-        #     await session.commit()
-        #     return result.rowcount
-        logger.debug(
-            "Would delete events for tier '%s' before %s", tier, cutoff
-        )
-        return 0
+        from sqlalchemy import delete, select
+        from backend.storage.database import Event, User
+
+        async with self.db_session_factory() as session:
+            result = await session.execute(
+                delete(Event).where(
+                    Event.user_id.in_(
+                        select(User.id).where(User.tier == tier)
+                    ),
+                    Event.timestamp_start < cutoff,
+                )
+            )
+            await session.commit()
+            return result.rowcount
 
     async def _delete_transcripts_before(self, cutoff: datetime) -> int:
-        """Delete transcripts older than cutoff.
+        """Delete audio events whose transcript retention has expired.
+
+        Delegates to crud.get_expired_transcripts()/delete_audio_event(),
+        which check AudioEvent.expires_at (set at write time in
+        audio_only_incident.py/audio_correlation.py) rather than
+        recomputing a cutoff from `timestamp` here — expires_at is the
+        actual retention decision that was made when the transcript was
+        created, so it's the correct thing to check against. *cutoff* is
+        accepted for logging/interface consistency with the other
+        _delete_*_before methods but isn't the filter used.
 
         Args:
-            cutoff: Cutoff datetime.
+            cutoff: Cutoff datetime (see docstring — logging only).
 
         Returns:
             Number of deleted transcripts.
         """
-        # TODO: Implement with real SQLAlchemy query
-        logger.debug("Would delete transcripts before %s", cutoff)
-        return 0
+        from backend.storage import crud as storage_crud
+
+        deleted = 0
+        async with self.db_session_factory() as session:
+            expired = await storage_crud.get_expired_transcripts(session)
+            for audio_event in expired:
+                await storage_crud.delete_audio_event(session, audio_event.id)
+                deleted += 1
+            await session.commit()
+        return deleted
 
     async def _get_referenced_thumbnails(self) -> set[str]:
-        """Get set of thumbnail filenames referenced in database.
+        """Get set of thumbnail filenames referenced in the database.
+
+        NOTE: in the current architecture, event images are stored as
+        base64 inside Event.gemini_decision (Postgres JSONB), served via
+        GET /api/triggers/image/{incident_id} — not written to
+        self.storage_path as files. So this (and
+        delete_orphaned_thumbnails()/_count_orphaned_thumbnails(), which
+        scan that local directory) are correct against the DB schema but
+        will find nothing to reference or delete against a real deployment
+        unless/until a local thumbnail-file cache is added. Implemented
+        for real rather than left stubbed since Event.thumbnail_url does
+        exist and get populated (see hybrid_crud.py), and this makes the
+        method correct now and automatically useful if local thumbnail
+        caching is ever added — it's not simulated/fake data.
 
         Returns:
-            Set of referenced thumbnail filenames.
+            Set of referenced thumbnail filenames (basename only, matching
+            what delete_orphaned_thumbnails() compares against
+            os.listdir()).
         """
-        # TODO: Implement with real SQLAlchemy query
-        logger.debug("Would fetch referenced thumbnails from database")
-        return set()
+        import os
+        from sqlalchemy import select
+        from backend.storage.database import Event
+
+        async with self.db_session_factory() as session:
+            result = await session.execute(
+                select(Event.thumbnail_url).where(Event.thumbnail_url.isnot(None))
+            )
+            urls = [row[0] for row in result.all() if row[0]]
+        return {os.path.basename(url) for url in urls}
 
     async def _count_events_for_tier(self, tier: str,
                                      cutoff: datetime) -> int:
@@ -412,20 +479,38 @@ class DataCleanup:
         Returns:
             Count of events.
         """
-        # TODO: Implement with real SQLAlchemy query
-        return 0
+        from sqlalchemy import func, select
+        from backend.storage.database import Event, User
+
+        async with self.db_session_factory() as session:
+            result = await session.execute(
+                select(func.count(Event.id)).where(
+                    Event.user_id.in_(
+                        select(User.id).where(User.tier == tier)
+                    ),
+                    Event.timestamp_start < cutoff,
+                )
+            )
+            return result.scalar() or 0
 
     async def _count_transcripts_before(self, cutoff: datetime) -> int:
-        """Count transcripts older than cutoff.
+        """Count transcripts whose retention has expired.
+
+        Matches _delete_transcripts_before(): checks AudioEvent.expires_at,
+        not a recomputed cutoff — *cutoff* is accepted for interface
+        consistency but isn't the filter used (see that method's docstring).
 
         Args:
-            cutoff: Cutoff datetime.
+            cutoff: Cutoff datetime (logging/interface only).
 
         Returns:
             Count of transcripts.
         """
-        # TODO: Implement with real SQLAlchemy query
-        return 0
+        from backend.storage import crud as storage_crud
+
+        async with self.db_session_factory() as session:
+            expired = await storage_crud.get_expired_transcripts(session)
+            return len(expired)
 
     async def _count_orphaned_thumbnails(self) -> int:
         """Count orphaned thumbnail files.

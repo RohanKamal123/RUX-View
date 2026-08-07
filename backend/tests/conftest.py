@@ -33,6 +33,69 @@ def _reset_redis_singleton():
     reset_redis_client()
 
 
+@pytest.fixture(autouse=True)
+def _fake_get_redis_client():
+    """Make every get_redis_client() call return instantly.
+
+    config_store.get_config() (and therefore every config_store.get_*
+    convenience accessor — get_max_cameras() etc.) fails open on Redis
+    errors, but "fails open" still means it first tries a real network
+    call against UPSTASH_REDIS_REST_URL. The upstash_redis client retries
+    once with a 3s interval before giving up, so against the placeholder
+    URL set above that's ~10+ real seconds *per call* — multiplied by
+    every route/method that now reads config_store (dashboard pages,
+    camera quota, cleanup, the pipeline...), full-file test runs were
+    taking minutes.
+
+    Patches EVERY module that imports get_redis_client via
+    `from backend.core.redis_client import get_redis_client` — a plain
+    `import backend.core.redis_client` patch only affects callers that
+    look it up as an attribute at call time (redis_client.get_redis_client()),
+    not modules that did `from ... import get_redis_client` at their own
+    import time, which copies the reference into their own namespace
+    before this fixture ever runs. Same gotcha as pipeline_v2._get_config
+    in test_pipeline_dry_run.py's mock_config_store fixture — see that
+    comment. Add new modules here if they start importing it the same way.
+
+    Tests that want to exercise real Redis behavior (e.g. tracker state)
+    already construct and inject their own mock/real client directly
+    rather than going through this singleton, so overriding it here
+    doesn't affect them.
+    """
+    from unittest.mock import AsyncMock, patch
+    import backend.core.redis_client as redis_client_module
+
+    fake = AsyncMock()
+    fake.get = AsyncMock(return_value=None)
+    fake.set = AsyncMock(return_value=True)
+    fake.delete = AsyncMock(return_value=1)
+    fake.hgetall = AsyncMock(return_value={})
+    fake.hset = AsyncMock(return_value=1)
+    fake.expire = AsyncMock(return_value=True)
+
+    async def _fake_get_redis_client():
+        return fake
+
+    patch_targets = ["backend.core.redis_client.get_redis_client"]
+    # Modules that copy the reference via `from ... import get_redis_client`
+    # at their own import time — patching the source module alone doesn't
+    # reach these once they've been imported once in the pytest process.
+    for module_path in ["backend.core.config_store"]:
+        try:
+            module = __import__(module_path, fromlist=["get_redis_client"])
+            if hasattr(module, "get_redis_client"):
+                patch_targets.append(f"{module_path}.get_redis_client")
+        except ImportError:
+            pass
+
+    patchers = [patch(target, _fake_get_redis_client) for target in patch_targets]
+    for p in patchers:
+        p.start()
+    yield fake
+    for p in patchers:
+        p.stop()
+
+
 @pytest.fixture
 def sample_jpeg_bytes() -> bytes:
     """Return minimal valid JPEG bytes for testing."""

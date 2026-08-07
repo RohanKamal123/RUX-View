@@ -26,9 +26,19 @@ from backend.analytics.report_builder import (
 
 @pytest.fixture
 def mock_db_session():
-    """Create a mock async database session."""
+    """Create a mock async database session.
+
+    session.execute must resolve to a plain MagicMock, not the AsyncMock
+    default: AsyncMock().return_value is itself an AsyncMock, so an
+    unconfigured chain off it (result.scalars().all(), etc.) silently
+    becomes async too — calling it inline like real SQLAlchemy code does
+    raises "coroutine object has no attribute 'all'" instead of exercising
+    the code path, and any .return_value/.side_effect configured on the
+    chain (see test bodies below) never actually takes effect since the
+    intermediate .scalars is itself an unawaited AsyncMock call.
+    """
     session = AsyncMock()
-    session.execute = AsyncMock()
+    session.execute = AsyncMock(return_value=MagicMock())
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     return session
