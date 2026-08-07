@@ -34,3 +34,17 @@ async def get_redis_client() -> UpstashRedis:
             token=settings.upstash_redis_rest_token,
         )
     return _redis_instance
+
+
+def reset_redis_client() -> None:
+    """Drop the cached singleton so the next get_redis_client() call rebuilds it.
+
+    Without this, whichever test happens to initialize the singleton first
+    (e.g. by booting the FastAPI app) locks in whatever settings.upstash_*
+    values were present at that moment for the rest of the pytest process —
+    poisoning any later, unrelated test that touches the pipeline. Called
+    from an autouse fixture in backend/tests/conftest.py; also usable in
+    production if credentials are ever rotated at runtime.
+    """
+    global _redis_instance
+    _redis_instance = None

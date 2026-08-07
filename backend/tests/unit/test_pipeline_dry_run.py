@@ -137,7 +137,18 @@ def mock_reid_engine():
 
 @pytest.fixture
 def mock_config_store():
-    """Mock config_store.get_config to return default config envelope."""
+    """Mock config_store.get_config to return default config envelope.
+
+    Patches backend.core.pipeline_v2._get_config, not
+    backend.core.config_store.get_config: pipeline_v2.py does
+    `from backend.core.config_store import get_config as _get_config` at
+    import time, which copies the reference into its own namespace.
+    Patching the source module's attribute only affects that copy if
+    pipeline_v2 happens to be imported for the first time *after* this
+    patch is applied — order-dependent and flaky whenever some other test
+    (e.g. one that boots the FastAPI app) already imported pipeline_v2
+    first. Patching the name where it's actually used avoids that.
+    """
     async def fake_get_config():
         return {
             "values": dict(DEFAULTS),
@@ -147,7 +158,7 @@ def mock_config_store():
             "live_effective": sorted(LIVE_EFFECTIVE),
         }
 
-    with patch("backend.core.config_store.get_config", fake_get_config):
+    with patch("backend.core.pipeline_v2._get_config", fake_get_config):
         yield
 
 

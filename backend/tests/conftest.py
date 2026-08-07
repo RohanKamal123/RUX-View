@@ -11,6 +11,26 @@ os.environ["DATABASE_URL"] = (
 )
 os.environ["GEMINI_API_KEY"] = "test-key"
 os.environ["OPENAI_API_KEY"] = "test-key"
+os.environ.setdefault("UPSTASH_REDIS_REST_URL", "https://fake-redis.invalid")
+os.environ.setdefault("UPSTASH_REDIS_REST_TOKEN", "test-token")
+
+
+@pytest.fixture(autouse=True)
+def _reset_redis_singleton():
+    """Reset the cached Upstash Redis client before every test.
+
+    backend/core/redis_client.py caches its client in a bare module-level
+    global with no per-test isolation. Whichever test happens to touch it
+    first (e.g. by booting the FastAPI app) locks in that moment's
+    settings.upstash_* values for the rest of the pytest process, silently
+    breaking unrelated later tests depending on run order. Autouse so every
+    test starts from a clean slate regardless of what ran before it.
+    """
+    from backend.core.redis_client import reset_redis_client
+
+    reset_redis_client()
+    yield
+    reset_redis_client()
 
 
 @pytest.fixture

@@ -53,11 +53,17 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_rate_limit_blocks_excessive_requests(self, limiter):
-        """Verify excessive requests are blocked."""
-        for _ in range(10):
-            await limiter.check_rate_limit("192.168.1.1", "/api/cameras")
+        """Verify excessive requests are blocked.
 
-        result = await limiter.check_rate_limit("192.168.1.1", "/api/cameras")
+        Uses a path outside the built-in per-prefix tiers (/api/, /api/auth/,
+        /api/signup, /static/ — see RateLimiter._endpoint_limits) so the
+        fixture's own max_requests actually governs this test instead of
+        being silently overridden by the tiered table.
+        """
+        for _ in range(10):
+            await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
+
+        result = await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
         assert result.allowed is False
         assert result.remaining == 0
         assert result.retry_after is not None
@@ -65,18 +71,19 @@ class TestRateLimiter:
     @pytest.mark.asyncio
     async def test_rate_limit_resets_after_window(self, limiter):
         """Verify rate limit resets after the window expires."""
-        # Use a very short window for testing
+        # Use a very short window for testing. Path must stay outside the
+        # built-in per-prefix tiers — see test_rate_limit_blocks_excessive_requests.
         limiter = RateLimiter(max_requests=2, window_seconds=1)
 
-        await limiter.check_rate_limit("192.168.1.1", "/api/test")
-        await limiter.check_rate_limit("192.168.1.1", "/api/test")
-        result = await limiter.check_rate_limit("192.168.1.1", "/api/test")
+        await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
+        await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
+        result = await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
         assert result.allowed is False
 
         # Wait for window to expire
         time.sleep(1.1)
 
-        result = await limiter.check_rate_limit("192.168.1.1", "/api/test")
+        result = await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
         assert result.allowed is True
 
     @pytest.mark.asyncio
@@ -98,12 +105,16 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_get_remaining_returns_correct_count(self, limiter):
-        """Verify get_remaining returns correct count."""
-        remaining = await limiter.get_remaining("192.168.1.1", "/api/test")
+        """Verify get_remaining returns correct count.
+
+        Path stays outside the built-in per-prefix tiers so the fixture's
+        max_requests=10 is what's actually being counted down from.
+        """
+        remaining = await limiter.get_remaining("192.168.1.1", "/dashboard/status")
         assert remaining == 10
 
-        await limiter.check_rate_limit("192.168.1.1", "/api/test")
-        remaining = await limiter.get_remaining("192.168.1.1", "/api/test")
+        await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
+        remaining = await limiter.get_remaining("192.168.1.1", "/dashboard/status")
         assert remaining == 9
 
     @pytest.mark.asyncio
@@ -114,12 +125,16 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_reset_limit_clears_tracking(self, limiter):
-        """Verify reset_limit clears tracking for an IP+endpoint."""
-        await limiter.check_rate_limit("192.168.1.1", "/api/test")
-        result = await limiter.reset_limit("192.168.1.1", "/api/test")
+        """Verify reset_limit clears tracking for an IP+endpoint.
+
+        Path stays outside the built-in per-prefix tiers — see
+        test_get_remaining_returns_correct_count.
+        """
+        await limiter.check_rate_limit("192.168.1.1", "/dashboard/status")
+        result = await limiter.reset_limit("192.168.1.1", "/dashboard/status")
         assert result["status"] == "reset"
 
-        remaining = await limiter.get_remaining("192.168.1.1", "/api/test")
+        remaining = await limiter.get_remaining("192.168.1.1", "/dashboard/status")
         assert remaining == 10
 
     @pytest.mark.asyncio
@@ -239,9 +254,9 @@ class TestFirebaseRules:
 
         users_rule = rules["rules"]["users"]["$uid"]
         assert ".read" in users_rule
-        assert "auth.uid === $uid" in users_rule["read"]
+        assert "auth.uid === $uid" in users_rule[".read"]
         assert ".write" in users_rule
-        assert "auth.uid === $uid" in users_rule["write"]
+        assert "auth.uid === $uid" in users_rule[".write"]
 
     def test_firebase_rules_admin_access(self):
         """Verify admin section requires admin claim."""
@@ -255,9 +270,9 @@ class TestFirebaseRules:
 
         admin_rule = rules["rules"]["admin"]
         assert ".read" in admin_rule
-        assert "auth.token.admin === true" in admin_rule["read"]
+        assert "auth.token.admin === true" in admin_rule[".read"]
         assert ".write" in admin_rule
-        assert "auth.token.admin === true" in admin_rule["write"]
+        assert "auth.token.admin === true" in admin_rule[".write"]
 
     def test_firebase_rules_public_static_access(self):
         """Verify there's no public static access in rules (handled at CDN level)."""
