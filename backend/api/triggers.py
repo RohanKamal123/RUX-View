@@ -389,7 +389,78 @@ async def receive_frame_trigger(
                     } if pipeline_result is not None else None,
                 }
 
-            # ── No live session: create a new event + start a session ──
+            # ── No live session: evaluate the trigger BEFORE opening one ──
+            # The pipeline runs first, with no event created yet, so a pure
+            # YOLO-gate miss (ambient motion with no real person/vehicle/
+            # animal in frame — e.g. a false client-side motion trigger from
+            # leaves or shadows) never writes a DB row at all. This used to
+            # run after crud.create_event(), so every yolo_gate-rejected
+            # first frame still left a permanent, never-closed "PENDING"
+            # event behind even though the caller was correctly told
+            # "no_change" — nothing ever calls update_event() or the
+            # cleanup loop for a session that was never registered in
+            # _active_sessions. A second, larger contributor to
+            # event-count inflation alongside the session-teardown fix above,
+            # given the client's motion detector already runs ambient-motion
+            # false positives through this exact path.
+            pipeline_result = None
+            if jpeg_bytes is not None:
+                try:
+                    # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
+                    pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
+                    if pipeline_v2 is not None:
+                        pipeline_result = await pipeline_v2.process_frame(
+                            camera_id=camera_id,
+                            user_id=user_id,
+                            location_id=location_id,
+                            mode=mode,
+                            jpeg_bytes=jpeg_bytes,
+                            camera_profile=trigger_data.camera_profile
+                                           if hasattr(trigger_data, "camera_profile")
+                                           else None,
+                        )
+                        if not pipeline_result.change_detected and pipeline_result.skip_reason == "yolo_gate":
+                            # No real object in frame — nothing to create or clean up.
+                            reset_gemini_throttle(camera_id)
+                            return {"status": "no_change", "camera_id": camera_id}
+                        # Any other no-change reason (throttled / incident
+                        # builder skip) still opens a session below — a real
+                        # object passed the YOLO gate, Gemini is just being
+                        # rate-limited for this particular frame.
+                    else:
+                        # Fallback to existing pipeline if v2 unavailable
+                        pipeline_result = await pipeline_manager.process_trigger(
+                            camera_id=camera_id,
+                            user_id=user_id,
+                            location_id=location_id,
+                            mode=mode,
+                            jpeg_bytes=jpeg_bytes,
+                            motion_result={
+                                "pixel_diff": confidence * 100,
+                                "diff_category": "trigger" if confidence > motion_confidence else "skip",
+                            },
+                        )
+                        # NO_CHANGE gating: skip DB write entirely
+                        if not pipeline_result.change_detected:
+                            logger.debug(
+                                "NO_CHANGE response for camera %s (new session) — skipping",
+                                camera_id,
+                            )
+                            reset_gemini_throttle(camera_id)
+                            return {"status": "no_change", "camera_id": camera_id}
+                except Exception as pipe_err:
+                    logger.error(
+                        "Pipeline failed during session create for camera %s: %s",
+                        camera_id, pipe_err, exc_info=True,
+                    )
+                    # Fail open — still record the raw motion trigger as an
+                    # event below, just without pipeline enrichment.
+                    pipeline_result = None
+            elif jpeg_bytes is None:
+                logger.warning("jpeg_bytes is None — skipping pipeline (image_base64 was empty or failed to decode)")
+
+            # ── Pipeline confirmed this is real (or couldn't be evaluated at
+            # all) — create the event and start the session ──
             details = {
                 "image_base64": image_base64,
                 "timestamp": timestamp,
@@ -413,80 +484,19 @@ async def receive_frame_trigger(
             }
             _active_sessions[camera_id] = session
 
-            pipeline_result = None
-            if jpeg_bytes is not None:
+            if pipeline_result is not None and pipeline_result.change_detected:
+                new_threat = pipeline_result.threat_level or "LOW"
+                session["max_threat"] = new_threat
                 try:
-                    # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
-                    pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
-                    if pipeline_v2 is not None:
-                        pipeline_result = await pipeline_v2.process_frame(
-                            camera_id=camera_id,
-                            user_id=user_id,
-                            location_id=location_id,
-                            mode=mode,
-                            jpeg_bytes=jpeg_bytes,
-                            camera_profile=trigger_data.camera_profile
-                                           if hasattr(trigger_data, "camera_profile")
-                                           else None,
-                        )
-                        if not pipeline_result.change_detected:
-                            if pipeline_result.skip_reason == "yolo_gate":
-                                _active_sessions.pop(camera_id, None)
-                                reset_gemini_throttle(camera_id)
-                                return {"status": "no_change", "camera_id": camera_id}
-                            # Throttled or skipped by incident builder —
-                            # session is real, keep it alive
-                            return {
-                                "event_id": session["event_id"],
-                                "status": "session_updated",
-                                "frame_count": session["frame_count"],
-                                "max_threat": session["max_threat"],
-                                "pipeline": None,
-                            }
-                    else:
-                        # Fallback to existing pipeline if v2 unavailable
-                        pipeline_result = await pipeline_manager.process_trigger(
-                            camera_id=camera_id,
-                            user_id=user_id,
-                            location_id=location_id,
-                            mode=mode,
-                            jpeg_bytes=jpeg_bytes,
-                            motion_result={
-                                "pixel_diff": confidence * 100,
-                                "diff_category": "trigger" if confidence > motion_confidence else "skip",
-                            },
-                        )
-
-                    # NO_CHANGE gating: skip DB write entirely
-                    if not pipeline_result.change_detected:
-                        logger.debug(
-                            "NO_CHANGE response for camera %s (new session) — skipping",
-                            camera_id,
-                        )
-                        # Clean up the partial session
-                        _active_sessions.pop(camera_id, None)
-                        reset_gemini_throttle(camera_id)
-                        return {"status": "no_change", "camera_id": camera_id}
-
-                    new_threat = pipeline_result.threat_level or "LOW"
-                    session["max_threat"] = new_threat
-                    try:
-                        await crud.update_event(
-                            event_id=event.event_id,
-                            threat_level=pipeline_result.threat_level,
-                            alert_message=pipeline_result.alert_message,
-                            person_ids=pipeline_result.person_ids,
-                            frame_count=session["frame_count"],
-                        )
-                    except Exception as update_err:
-                        logger.error("Failed to update event %s with pipeline result: %s", event.event_id, update_err)
-                except Exception as pipe_err:
-                    logger.error(
-                        "Pipeline failed during session create for camera %s: %s",
-                        camera_id, pipe_err, exc_info=True,
+                    await crud.update_event(
+                        event_id=event.event_id,
+                        threat_level=pipeline_result.threat_level,
+                        alert_message=pipeline_result.alert_message,
+                        person_ids=pipeline_result.person_ids,
+                        frame_count=session["frame_count"],
                     )
-            elif jpeg_bytes is None:
-                logger.warning("jpeg_bytes is None — skipping pipeline (image_base64 was empty or failed to decode)")
+                except Exception as update_err:
+                    logger.error("Failed to update event %s with pipeline result: %s", event.event_id, update_err)
 
             response: dict = {
                 "event_id": event.event_id,

@@ -93,7 +93,24 @@ connect agent --HTTPS trigger--> backend/api/triggers.py
                     created. A background loop (_session_cleanup_loop) closes
                     sessions every 15s once they go quiet, writing timestamp_end /
                     duration_sec / max_threat (threat escalates via _THREAT_ORDER,
-                    PENDING < LOW < MEDIUM < HIGH < CRITICAL < EMERGENCY).
+                    PENDING < LOW < MEDIUM < HIGH < CRITICAL < EMERGENCY). Two bugs
+                    here previously fragmented one continuous visit into 10-15
+                    events instead of 1 (see test_session_merge.py, the only test
+                    coverage either ever had): (1) any no-change pipeline result
+                    (a transient YOLO miss, not just a real subject leaving) during
+                    an *active* session used to pop it and reset the Gemini
+                    throttle — fixed, a no-change result now just extends
+                    last_motion_at; only the timeout loop above may actually end a
+                    session. (2) for a brand-new session, crud.create_event() ran
+                    before the YOLO gate's verdict was known, so a pure
+                    yolo_gate miss (ambient motion, no real object) still left a
+                    permanent, never-closed "PENDING" event in the DB — fixed, the
+                    event is now only created once the trigger is confirmed real.
+                    Validate against a real clip offline (no Redis/GCP/DB needed)
+                    with `python -m scripts.validate_session_merge --clip
+                    path/to/clip.mp4` — runs the real YOLO gate frame-by-frame and
+                    replays the sequence through both the old and current
+                    session-merge logic to report event counts for each.
                                        |
                                        v
                           PipelineManager (backend/core/pipeline_manager.py)
