@@ -361,9 +361,13 @@ class HybridCRUD:
                     event_type=pg_event.incident_id or "motion",
                     confidence=0.0,
                     threat_level=pg_event.threat_level or "LOW",
+                    thumbnail_url=pg_event.thumbnail_url or f"/api/triggers/image/{pg_event.incident_id}",
+                    alert_message=(pg_event.gemini_decision or {}).get("alert_message", ""),
+                    camera_name=pg_event.camera_id,
                     timestamp_start=str(pg_event.timestamp_start) if pg_event.timestamp_start else "",
                     timestamp_end=str(pg_event.timestamp_end) if getattr(pg_event, "timestamp_end", None) else None,
                     duration_sec=int(pg_event.duration_sec or 0),
+                    person_ids=(pg_event.gemini_decision or {}).get("person_ids", []),
                     details={
                         "image_base64": pg_event.gemini_decision.get("image_base64", "") if pg_event.gemini_decision else "",
                         "frame_count": pg_event.gemini_decision.get("frame_count", 0) if pg_event.gemini_decision else 0,
@@ -438,28 +442,66 @@ class HybridCRUD:
                 logger.error("PG update_event failed: %s", e)
         return False
 
-    async def search_events(self, user_id: str, query: str) -> list[Event]:
-        """Search events by query string."""
+    async def search_events(
+        self,
+        user_id: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        camera_ids: Optional[list[str]] = None,
+        threat_level: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[Event]:
+        """Search events for a user with optional time range / camera / threat filters.
+
+        Backs the query agent's `search_events` tool — all filters are pushed
+        down to the database (see PostgresCRUD.get_user_events), not applied
+        in Python, so this scales with real data volume.
+        """
         if self._pg_available:
             try:
-                pg_events = await self._pg.get_user_events(user_id, limit=50)
-                q = query.lower()
-                results = []
-                for e in pg_events:
-                    if q in (e.incident_id or "").lower() or q in (e.camera_id or "").lower():
-                        results.append(Event(
-                            event_id=str(e.id),
-                            user_id=e.user_id,
-                            camera_id=e.camera_id,
-                            event_type=e.incident_id or "motion",
-                            threat_level=e.threat_level or "LOW",
-                            created_at=str(e.timestamp_start) if e.timestamp_start else "",
-                        ))
-                return results
+                pg_events = await self._pg.get_user_events(
+                    user_id,
+                    limit=limit,
+                    camera_ids=camera_ids,
+                    start_time=start_time,
+                    end_time=end_time,
+                    threat_level=threat_level,
+                )
+                return [
+                    Event(
+                        event_id=str(e.id),
+                        user_id=e.user_id,
+                        camera_id=e.camera_id,
+                        event_type=e.incident_id or "motion",
+                        threat_level=e.threat_level or "LOW",
+                        thumbnail_url=e.thumbnail_url or f"/api/triggers/image/{e.incident_id}",
+                        alert_message=(e.gemini_decision or {}).get("alert_message", ""),
+                        camera_name=e.camera_id,
+                        timestamp_start=str(e.timestamp_start) if e.timestamp_start else "",
+                        timestamp_end=str(e.timestamp_end) if getattr(e, "timestamp_end", None) else None,
+                        duration_sec=int(e.duration_sec or 0),
+                        person_ids=(e.gemini_decision or {}).get("person_ids", []),
+                        created_at=str(e.timestamp_start) if e.timestamp_start else "",
+                    ) for e in pg_events
+                ]
             except Exception as e:
                 logger.error("PG events search failed: %s", e)
 
         return []
+
+    async def get_events_by_person(
+        self, user_id: str, person_uid: str, limit: int = 200,
+    ) -> list[Event]:
+        """Find events a person_uid appears in (for cross-camera tracking).
+
+        person_ids are stored inside each event's gemini_decision JSON blob
+        (there is no populated person_sightings table in the live pipeline
+        yet), so this scans the user's recent events and filters in Python.
+        `limit` bounds how many recent events are scanned, not how many are
+        returned.
+        """
+        events = await self.get_user_events(user_id, limit=limit)
+        return [e for e in events if person_uid in (e.person_ids or [])]
 
     async def get_camera_events(self, camera_id: str, limit: int = 50) -> list[Event]:
         """Get events for a specific camera."""

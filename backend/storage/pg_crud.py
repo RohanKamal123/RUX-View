@@ -169,12 +169,32 @@ class PostgresCRUD:
         limit: int = 50,
         offset: int = 0,
         camera_id: Optional[str] = None,
+        camera_ids: Optional[list[str]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        threat_level: Optional[str] = None,
     ) -> list[Event]:
-        """Get events for a user, with optional camera filter."""
+        """Get events for a user, with optional camera/time/threat filters.
+
+        Args:
+            camera_id: Single camera filter (takes precedence over camera_ids).
+            camera_ids: Multiple-camera filter.
+            start_time: Only events with timestamp_start >= this.
+            end_time: Only events with timestamp_start <= this.
+            threat_level: Exact threat_level match (e.g. "HIGH").
+        """
         async with create_session() as session:
             query = select(Event).where(Event.user_id == user_id)
             if camera_id:
                 query = query.where(Event.camera_id == camera_id)
+            elif camera_ids:
+                query = query.where(Event.camera_id.in_(camera_ids))
+            if start_time is not None:
+                query = query.where(Event.timestamp_start >= start_time)
+            if end_time is not None:
+                query = query.where(Event.timestamp_start <= end_time)
+            if threat_level:
+                query = query.where(Event.threat_level == threat_level)
             query = query.order_by(desc(Event.timestamp_start)).limit(limit).offset(offset)
             result = await session.execute(query)
             return list(result.scalars().all())

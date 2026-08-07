@@ -3,11 +3,16 @@ queries.py — Natural Language Query API for Vision OS (Hybrid Backend).
 
 Provides natural language querying of security events and query history.
 Uses HybridCRUD which falls back to PostgreSQL when MEGA.nz is unavailable.
+
+The /natural endpoint delegates to backend.ai.query_agent — a Gemini
+function-calling agent that looks up real event data via HybridCRUD,
+rather than doing keyword matching itself.
 """
 
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.ai.query_agent import answer_question
 from backend.dashboard.auth import get_current_user
 from backend.storage.hybrid_crud import HybridCRUD
 
@@ -44,24 +49,25 @@ async def natural_language_query(
     user: dict = Depends(get_current_user),
     crud: HybridCRUD = Depends(get_crud),
 ):
-    """Process a natural language query about security events.
+    """Answer a natural language question about security events.
 
-    Parses the query text and searches events by type, camera, or details.
-    Returns matching events with confidence scores.
+    Runs the question through the Gemini-backed query agent
+    (backend.ai.query_agent), which looks up real event data via tool
+    calls before answering — see that module for the tool set and loop.
 
     Args:
-        query_data: Dict with query string and optional camera_id.
+        query_data: Dict with "query" (the question text).
         user: Authenticated user dict from Firebase.
 
     Returns:
-        Dict with answer, events_found, and confidence.
+        Dict with answer and a debug trace of tool calls made.
 
     Raises:
         HTTPException 422: If query is missing.
     """
     user_id = user.get("uid", "anonymous")
+    tier = user.get("tier", "free")
     query = query_data.get("query", "").strip()
-    camera_id = query_data.get("camera_id")
 
     if not query:
         raise HTTPException(status_code=422, detail={
@@ -69,30 +75,13 @@ async def natural_language_query(
         })
 
     try:
-        # Search events matching the query
-        events = await crud.search_events(user_id, query)
-
-        # If camera_id specified, filter further
-        if camera_id:
-            events = [e for e in events if e.camera_id == camera_id]
-
-        # Build a natural language answer
-        if not events:
-            answer = f"No events found matching '{query}'."
-        else:
-            event_types = set(e.event_type for e in events)
-            answer = (
-                f"Found {len(events)} event(s) matching '{query}'. "
-                f"Types detected: {', '.join(event_types)}. "
-                f"Most recent: {events[0].event_type} at {events[0].created_at}."
-            )
+        result = await answer_question(query, user_id, tier, crud)
 
         # Record query in history
         _query_history.append({
             "query": query,
             "user_id": user_id,
-            "camera_id": camera_id,
-            "results_count": len(events),
+            "results_count": len(result.tool_calls),
             "timestamp": datetime.utcnow().isoformat(),
         })
 
@@ -101,16 +90,9 @@ async def natural_language_query(
             _query_history[:] = _query_history[-100:]
 
         return {
-            "answer": answer,
-            "events_found": len(events),
-            "confidence": max((e.confidence for e in events), default=0.0),
-            "events": [{
-                "event_id": e.event_id,
-                "camera_id": e.camera_id,
-                "event_type": e.event_type,
-                "confidence": e.confidence,
-                "created_at": e.created_at,
-            } for e in events[:10]],  # Return top 10
+            "answer": result.answer,
+            "tool_calls": result.tool_calls,
+            "error": result.error,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail={
