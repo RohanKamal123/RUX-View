@@ -287,14 +287,16 @@ async def receive_frame_trigger(
                                                else None,
                             )
                             if not pipeline_result.change_detected:
-                                if pipeline_result.skip_reason == "yolo_gate":
-                                    _active_sessions.pop(camera_id, None)
-                                    reset_gemini_throttle(camera_id)
-                                    return {"status": "no_change", "camera_id": camera_id}
-                                # Throttled (skip_reason == "throttled" or None):
-                                # keep session alive — just return updated status
+                                # A single frame with no YOLO-confirmed object (occlusion,
+                                # motion blur, edge-of-frame, brief angle change) does NOT
+                                # mean the subject left — destroying an already-active
+                                # session here was fragmenting one continuous visit into
+                                # many separate events. Treat every no-change reason the
+                                # same during an active session: keep it alive and let the
+                                # time-based session_timeout_sec close it out for real.
                                 logger.debug(
-                                    "NO_CHANGE (throttled) for camera %s — preserving session",
+                                    "NO_CHANGE (%s) for camera %s — preserving active session",
+                                    pipeline_result.skip_reason or "throttled",
                                     camera_id,
                                 )
                                 session["last_motion_at"] = now
@@ -318,19 +320,14 @@ async def receive_frame_trigger(
                                 },
                             )
 
-                        # Step 3 — NO_CHANGE gating: skip event update entirely
+                        # Step 3 — NO_CHANGE gating: preserve the active session.
+                        # (See comment above: a per-frame miss during an already-active
+                        # session must not tear the session down — only the time-based
+                        # session_timeout_sec cleanup loop should do that.)
                         if not pipeline_result.change_detected:
-                            if pipeline_result.skip_reason == "yolo_gate":
-                                logger.debug(
-                                    "NO_CHANGE (yolo_gate) for camera %s — destroying session",
-                                    camera_id,
-                                )
-                                reset_gemini_throttle(camera_id)
-                                return {"status": "no_change", "camera_id": camera_id}
-                            # Throttled (skip_reason == "throttled" or None from old pipeline):
-                            # keep session alive — just return updated status
                             logger.debug(
-                                "NO_CHANGE (throttled) for camera %s — preserving session",
+                                "NO_CHANGE (%s) for camera %s — preserving active session",
+                                pipeline_result.skip_reason or "throttled",
                                 camera_id,
                             )
                             session["last_motion_at"] = now
