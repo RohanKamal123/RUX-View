@@ -172,21 +172,56 @@ If you change a threshold's *default*, update `config_store.DEFAULTS` — don't 
 edit the call site — otherwise the tuning UI and `doc/NUMERICAL_AUDIT.md` drift out of
 sync with the code again.
 
-**Don't assume a key in `DEFAULTS` is actually read anywhere.** A systematic check
-found ~21 of the 58 keys were declared but never consumed outside `config_store.py`
-itself — moving their tuning-dashboard slider did nothing. `retention_*_days` /
-`transcript_retention_days` / `max_cameras_per_user` are now wired (see Dashboard and
-Storage sections). Still dead as of this writing: `alert_retry_interval_sec` /
-`alert_max_retries` / `telegram_timeout_sec` (hardcoded in `alert_router.py` /
-`telegram_client.py`), the four `cache_ttl_*` keys (`cdn_manager.py`), and
-`pg_find_similar_limit`. Structurally can't be "live" the way the category name implies
-without more work: `db_pool_*` keys configure SQLAlchemy's engine at process startup
-(`engine.py`), and `rtsp_*`/`motion_*` keys are consumed client-side
-(`connect/camera/motion_detector.py` already accepts a `config` dict; `rtsp_reader.py`
-doesn't yet) but `connect/` has no path to ever receive `config_store` values — it's a
-separate Windows deployable with no Redis access, and no client-config-sync mechanism
-exists yet. Verify with `grep -rn "<key_name>" backend/ connect/` before trusting that a
-key does anything.
+**Don't assume a key in `DEFAULTS` is actually read anywhere without checking** — a
+systematic audit originally found ~21 of the 59 keys declared but never consumed
+outside `config_store.py` itself (moving their tuning-dashboard slider did nothing).
+All of them are now wired: `retention_*_days` / `transcript_retention_days` /
+`max_cameras_per_user` (Dashboard/Storage sections), `alert_retry_interval_sec` /
+`alert_max_retries` (`alert_router.py`) / `telegram_timeout_sec` (`telegram_client.py`),
+the four `cache_ttl_*` keys (`cdn_manager.py`), `db_pool_*` (see below), and
+`rtsp_*`/`motion_*` (see "Client config sync" below). Two keys were checked and found
+to have no live target worth wiring rather than being fixed: `pg_find_similar_limit`
+targets `PostgresCRUD.find_similar_persons()`, an orphaned duplicate of the function
+`reid_engine.py` actually calls (`crud.find_similar_persons()`); `gemini_digest_word_limit`
+targets a digest code path superseded by `DigestGenerator`'s template-formatted output
+(no Gemini call at all — see Dashboard section). Verify with
+`grep -rn "<key_name>" backend/ connect/` before trusting that a key does anything —
+this list can drift again.
+
+**`db_pool_*` live reconfiguration (`backend/storage/engine.py`).** The engine used to
+be a bare module-level global built once at import time — changing `db_pool_size` /
+`db_max_overflow` / `db_pool_timeout_sec` / `db_connect_timeout_sec` needed a redeploy.
+`refresh_engine_config()` now compares config_store's live values against
+`_current_pool_config` (the pool the active engine was built with) and, if they
+differ, builds a replacement engine + session factory under `_engine_lock` and disposes
+the old one — `create_session()` always reads the current module globals, so callers
+need no changes. Three call sites trigger it: once on server startup (picks up
+whatever was already in Redis before this process started), immediately after every
+`POST /api/config/thresholds` write (`backend/api/config.py`, so the instance that
+handled the write sees it right away), and every 5 minutes from the APScheduler job
+`db_pool_config_refresh` (`backend/dashboard/server.py`, the fallback for other Cloud
+Run instances that didn't handle that particular write). Fails open — a config_store
+read error keeps the current engine rather than tearing down the pool.
+
+**Client config sync (`connect/config_sync.py`).** `connect/` is a separate Windows
+deployable with no direct Redis access, so `motion_min_area` / `motion_threshold` /
+`motion_history` / `motion_var_threshold` / `fg_mask_threshold` /
+`rtsp_reconnect_delay_sec` / `rtsp_connect_timeout_sec` had no path to ever reach it —
+changing those sliders only ever affected the server-side YOLO/tracking gates, never
+the actual camera client. `GET /api/config/client` (`backend/api/config.py`, protected
+by the same `get_current_user` dependency the client already authenticates
+`/api/triggers/*` with) now exposes just that seven-key subset.
+`ClientConfigSync.run_forever()` polls it every 60s (first sync fires immediately on
+`start()`, not after the first wait) and applies the result to the live
+`MotionDetector`/`RTSPReader` instances — `MotionDetector.update_config()` rebuilds the
+MOG2 background subtractor only when `motion_history`/`motion_var_threshold` actually
+changed (rebuilding on every poll would reset the learned background and cause
+spurious motion), the other three fields are read live on every `detect()` call so no
+rebuild is needed. `RTSPReader.connect_timeout` is a new attribute (default 10.0s,
+mirrors `rtsp_connect_timeout_sec`) that `connect()` falls back to when not given an
+explicit `timeout` kwarg — `reconnect_delay` was already a plain settable attribute.
+Wired into `VisionOSConnect.start()`/`stop()` in `connect/main.py` as a background
+task alongside the main loop and WebSocket receive task.
 
 ### Clip-based dry-run testing (`backend/api/clip_analysis.py`, `clip_test.py`)
 

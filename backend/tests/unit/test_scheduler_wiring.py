@@ -17,14 +17,27 @@ import backend.dashboard.server as server_module
 from backend.dashboard.server import app
 
 
-def test_scheduler_starts_with_all_three_jobs():
+def test_scheduler_starts_with_all_jobs():
     with TestClient(app):
         scheduler = server_module.scheduler
         assert scheduler is not None
         assert scheduler.running
 
         job_ids = {job.id for job in scheduler.get_jobs()}
-        assert job_ids == {"daily_retention_cleanup", "daily_digest", "weekly_digest"}
+        assert job_ids == {
+            "daily_retention_cleanup", "daily_digest", "weekly_digest",
+            "db_pool_config_refresh",
+        }
+
+
+def test_db_pool_config_refresh_runs_every_5_minutes():
+    """The multi-instance fallback path for db_pool_* config changes --
+    the primary path is the immediate refresh_engine_config() call from
+    POST /api/config/thresholds (see test_client_config_api.py), this job
+    catches instances that didn't handle that particular write."""
+    with TestClient(app):
+        job = server_module.scheduler.get_job("db_pool_config_refresh")
+        assert job.trigger.interval.total_seconds() == 5 * 60
 
 
 def test_daily_retention_cleanup_runs_at_3am():

@@ -51,8 +51,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_start_stop(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -83,6 +85,12 @@ class TestVisionOSConnect:
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
 
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
+
         # ── Test ────────────────────────────────────────────────────────────
         app = VisionOSConnect(app_config)
         assert app.status == "stopped"
@@ -104,8 +112,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_start_camera_failure(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -132,6 +142,12 @@ class TestVisionOSConnect:
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
 
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
+
         app = VisionOSConnect(app_config)
         await app.start()
         assert app.status == "running"  # Should still start
@@ -142,8 +158,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_start_ws_failure(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -170,6 +188,12 @@ class TestVisionOSConnect:
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
 
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
+
         app = VisionOSConnect(app_config)
         await app.start()
         assert app.status == "running"  # Should still start
@@ -180,8 +204,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_double_start(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -208,6 +234,12 @@ class TestVisionOSConnect:
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
 
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
+
         app = VisionOSConnect(app_config)
         await app.start()
         await app.start()  # Second start should be no-op
@@ -219,8 +251,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_status_property(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -247,6 +281,12 @@ class TestVisionOSConnect:
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
 
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
+
         app = VisionOSConnect(app_config)
         assert app.status == "stopped"
 
@@ -260,8 +300,10 @@ class TestVisionOSConnect:
     @patch("connect.main.TriggerSender")
     @patch("connect.main.WebSocketClient")
     @patch("connect.main.LocalQueue")
+    @patch("connect.main.ClientConfigSync")
     async def test_config_property(
         self,
+        mock_sync_cls: MagicMock,
         mock_queue_cls: MagicMock,
         mock_ws_cls: MagicMock,
         mock_sender_cls: MagicMock,
@@ -287,6 +329,12 @@ class TestVisionOSConnect:
         mock_queue = MagicMock()
         mock_queue.count.return_value = 0
         mock_queue_cls.return_value = mock_queue
+
+        # ── Mock ClientConfigSync ───────────────────────────────────────────
+        mock_sync = MagicMock()
+        mock_sync.run_forever = AsyncMock(return_value=None)
+        mock_sync.close = AsyncMock()
+        mock_sync_cls.return_value = mock_sync
 
         app = VisionOSConnect(app_config)
         assert app.config is app_config

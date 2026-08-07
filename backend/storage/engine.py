@@ -11,6 +11,7 @@ Usage:
         result = await session.execute(...)
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -53,16 +54,40 @@ if _db_url:
         _connect_args["ssl"] = True
         logger.info("Stripped ssl from URL, passing ssl=True via connect_args")
 
+def _build_engine(pool_size: int, max_overflow: int, pool_timeout: int, connect_timeout: int):
+    """Build a new async engine with the given pool tunables.
+
+    Split out from module-level so :func:`refresh_engine_config` can build
+    a replacement engine with different db_pool_* values without a redeploy.
+    """
+    return create_async_engine(
+        _db_url,
+        echo=(settings.log_level == "DEBUG"),
+        poolclass=AsyncAdaptedQueuePool,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=pool_timeout,
+        pool_pre_ping=True,
+        connect_args={**_connect_args, "ssl": "require", "timeout": connect_timeout},
+    )
+
+
+# Pool tunables the currently active _engine was built with — compared against
+# config_store on each refresh_engine_config() call to decide whether a rebuild
+# is warranted. Defaults match config_store.DEFAULTS' db_pool_* keys.
+_current_pool_config = {
+    "db_pool_size": 3,
+    "db_max_overflow": 2,
+    "db_pool_timeout_sec": 15,
+    "db_connect_timeout_sec": 15,
+}
+
 # Use NullPool for serverless environments (Neon, Railway) to avoid connection pooling issues
-_engine = create_async_engine(
-    _db_url,
-    echo=(settings.log_level == "DEBUG"),
-    poolclass=AsyncAdaptedQueuePool,
-    pool_size=3,
-    max_overflow=2,
-    pool_timeout=15,
-    pool_pre_ping=True,
-    connect_args={**_connect_args, "ssl": "require", "timeout": 15},
+_engine = _build_engine(
+    _current_pool_config["db_pool_size"],
+    _current_pool_config["db_max_overflow"],
+    _current_pool_config["db_pool_timeout_sec"],
+    _current_pool_config["db_connect_timeout_sec"],
 )
 
 # ── Session Factory ─────────────────────────────────────────────────────────────
@@ -72,6 +97,11 @@ _async_session_factory = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+# Guards concurrent refresh_engine_config() calls (e.g. a config write racing
+# a scheduled refresh) so _engine and _async_session_factory are always swapped
+# together, never observed half-updated.
+_engine_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -92,6 +122,72 @@ async def create_session() -> AsyncIterator[AsyncSession]:
         raise
     finally:
         await session.close()
+
+
+async def refresh_engine_config() -> bool:
+    """Rebuild the engine if config_store's db_pool_* tunables have changed.
+
+    Compares the live ``db_pool_size`` / ``db_max_overflow`` /
+    ``db_pool_timeout_sec`` / ``db_connect_timeout_sec`` values against the
+    pool config the currently active engine was built with. If they differ,
+    builds a fresh engine + session factory, swaps them in atomically (under
+    ``_engine_lock``), and disposes the old engine's connection pool.
+
+    This is how the tuning dashboard's db_pool_* sliders take effect without
+    a redeploy: previously these engine kwargs were baked into a bare
+    module-level global at import time with no way to change them short of
+    restarting the process. Called on server startup, after every
+    ``POST /api/config/thresholds`` write, and periodically from the
+    scheduler (backend/dashboard/server.py) so other Cloud Run instances
+    that didn't handle the write still pick up the change.
+
+    Fails open (keeps the current engine, returns False) if config_store is
+    unreachable — a transient Redis blip must not tear down the DB pool.
+
+    Returns:
+        True if the engine was rebuilt, False if unchanged or on error.
+    """
+    global _engine, _async_session_factory, _current_pool_config
+
+    try:
+        from backend.core.config_store import get_config, DEFAULTS
+        cfg = (await get_config())["values"]
+    except Exception as exc:
+        logger.warning("refresh_engine_config: config_store unavailable, keeping current pool: %s", exc)
+        return False
+
+    new_config = {
+        "db_pool_size": int(cfg.get("db_pool_size", DEFAULTS["db_pool_size"])),
+        "db_max_overflow": int(cfg.get("db_max_overflow", DEFAULTS["db_max_overflow"])),
+        "db_pool_timeout_sec": int(cfg.get("db_pool_timeout_sec", DEFAULTS["db_pool_timeout_sec"])),
+        "db_connect_timeout_sec": int(cfg.get("db_connect_timeout_sec", DEFAULTS["db_connect_timeout_sec"])),
+    }
+
+    async with _engine_lock:
+        if new_config == _current_pool_config:
+            return False
+
+        old_engine = _engine
+        new_engine = _build_engine(
+            new_config["db_pool_size"],
+            new_config["db_max_overflow"],
+            new_config["db_pool_timeout_sec"],
+            new_config["db_connect_timeout_sec"],
+        )
+        new_factory = async_sessionmaker(
+            new_engine, class_=AsyncSession, expire_on_commit=False,
+        )
+
+        _engine = new_engine
+        _async_session_factory = new_factory
+        _current_pool_config = new_config
+
+        # Dispose the old pool after the swap so in-flight sessions created
+        # from it (via create_session(), captured before the swap) still
+        # finish against a live pool; only new sessions see the new engine.
+        await old_engine.dispose()
+        logger.info("Rebuilt DB engine with new pool config: %s", new_config)
+        return True
 
 
 async def init_db() -> None:

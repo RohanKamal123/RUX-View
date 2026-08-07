@@ -33,7 +33,7 @@ from fastapi.templating import Jinja2Templates
 from backend.config import settings
 from backend.storage.pg_crud import PostgresCRUD
 from backend.storage.hybrid_crud import HybridCRUD
-from backend.storage.engine import close_db, create_session, init_db
+from backend.storage.engine import close_db, create_session, init_db, refresh_engine_config
 from backend.dashboard.auth import init_firebase
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,18 @@ async def lifespan(app: FastAPI):
         logger.error("Firebase Auth initialization failed: %s", e)
         if settings.environment == "production":
             raise
+
+    # ── 1.5 Sync DB pool config from config_store ──────────────
+    # The engine module builds its pool at import time from
+    # config_store.DEFAULTS (Redis isn't reachable synchronously at import),
+    # so any db_pool_* override already sitting in Redis from a previous
+    # session needs to be picked up now, before real traffic arrives.
+    try:
+        rebuilt = await refresh_engine_config()
+        if rebuilt:
+            logger.info("DB engine rebuilt from stored db_pool_* config on startup")
+    except Exception as e:
+        logger.error("refresh_engine_config() failed on startup: %s", e)
 
     # ── 2. Initialize PostgreSQL CRUD (Layer 2) ────────────────
     global pg_crud
@@ -180,6 +192,7 @@ async def lifespan(app: FastAPI):
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
         from backend.storage.cleanup import DataCleanup
         from backend.analytics.digest_generator import DigestGenerator
         from backend.alerts.telegram_client import TelegramClient
@@ -210,11 +223,22 @@ async def lifespan(app: FastAPI):
             CronTrigger(day_of_week="mon", hour=8, minute=0),
             id="weekly_digest",
         )
+        # Catches db_pool_* config changes made on a different Cloud Run
+        # instance than the one that handled the POST /api/config/thresholds
+        # write (that write already triggers an immediate refresh on its
+        # own instance — see backend/api/config.py) — this is the
+        # multi-instance fallback path, not the primary one.
+        scheduler.add_job(
+            refresh_engine_config,
+            IntervalTrigger(minutes=5),
+            id="db_pool_config_refresh",
+        )
         scheduler.start()
         app.state.scheduler = scheduler
         logger.info(
             "APScheduler started: daily_retention_cleanup (03:00), "
-            "daily_digest (22:00), weekly_digest (Mon 08:00)"
+            "daily_digest (22:00), weekly_digest (Mon 08:00), "
+            "db_pool_config_refresh (every 5 min)"
         )
     except Exception as sched_err:
         logger.error("Failed to start APScheduler jobs: %s", sched_err, exc_info=True)

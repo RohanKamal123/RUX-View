@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 from connect.config import AppConfig, load_config
+from connect.config_sync import ClientConfigSync
 from connect.camera.rtsp_reader import RTSPReader
 from connect.camera.frame_selector import select_best_frame
 from connect.camera.motion_detector import MotionDetector, MotionResult
@@ -115,9 +116,20 @@ class VisionOSConnect:
         # ── Buffer ────────────────────────────────────────────────────────
         self._local_queue = LocalQueue()
 
+        # ── Config Sync ──────────────────────────────────────────────────
+        # Keeps motion_* / rtsp_* tunables in sync with the backend's
+        # config_store (dashboard Tuning page) — see connect/config_sync.py.
+        self._config_sync = ClientConfigSync(
+            backend_url=config.backend_url,
+            auth_token=config.api_key,
+            motion_detector=self._motion_detector,
+            rtsp_reader=self._rtsp_reader,
+        )
+
         # ── Internal State ────────────────────────────────────────────────
         self._main_loop_task: Optional[asyncio.Task] = None
         self._ws_receive_task: Optional[asyncio.Task] = None
+        self._config_sync_task: Optional[asyncio.Task] = None
 
         logger.info(
             "VisionOSConnect initialised (camera=%s, mode=%s, audio=%s)",
@@ -173,6 +185,9 @@ class VisionOSConnect:
             # 5. Attempt to flush any queued events from a previous session
             asyncio.create_task(self._flush_queued_events())
 
+            # 6. Start background config sync (motion_*/rtsp_* tunables)
+            self._config_sync_task = asyncio.create_task(self._config_sync.run_forever())
+
             logger.info("VisionOSConnect started successfully")
 
         except asyncio.CancelledError:
@@ -213,6 +228,16 @@ class VisionOSConnect:
             except asyncio.CancelledError:
                 pass
             self._ws_receive_task = None
+
+        # Cancel config sync task
+        if self._config_sync_task is not None:
+            self._config_sync_task.cancel()
+            try:
+                await self._config_sync_task
+            except asyncio.CancelledError:
+                pass
+            self._config_sync_task = None
+        await self._config_sync.close()
 
         # Disconnect WebSocket
         await self._ws_client.disconnect()

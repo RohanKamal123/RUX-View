@@ -139,6 +139,40 @@ class MotionDetector:
             motion_area_pct=round(motion_area_pct, 2),
         )
 
+    def update_config(self, config: dict) -> None:
+        """Apply updated tunables live, e.g. from connect/config_sync.py's
+        periodic poll of the backend's config_store.
+
+        ``motion_min_area``, ``motion_threshold``, and ``fg_mask_threshold``
+        take effect immediately since ``detect()`` reads them from
+        ``self`` on every call. ``motion_history`` and
+        ``motion_var_threshold`` are baked into the MOG2 background
+        subtractor at construction time, so changing either rebuilds it --
+        that resets the learned background model, so the rebuild only
+        happens when one of those two specifically changed.
+
+        Args:
+            config: Dict with any subset of the five keys above; missing
+                keys leave the current value unchanged.
+        """
+        self.min_area = config.get("motion_min_area", self.min_area)
+        self.threshold = config.get("motion_threshold", self.threshold)
+        self._fg_mask_threshold = config.get("fg_mask_threshold", self._fg_mask_threshold)
+
+        new_history = config.get("motion_history", self._history)
+        new_var_threshold = config.get("motion_var_threshold", self._var_threshold)
+        if new_history != self._history or new_var_threshold != self._var_threshold:
+            self._history = new_history
+            self._var_threshold = new_var_threshold
+            self._bg_subtractor = cv2.createBackgroundSubtractorMOG2(
+                history=self._history, varThreshold=self._var_threshold,
+                detectShadows=False,
+            )
+            logger.info(
+                "Rebuilt MOG2 background subtractor (history=%d, varThreshold=%d)",
+                self._history, self._var_threshold,
+            )
+
     def set_roi(self, roi: Tuple[int, int, int, int]) -> None:
         """Set a region of interest for motion detection.
 

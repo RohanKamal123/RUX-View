@@ -61,6 +61,44 @@ class TestRTSPReader:
         assert reader.rtsp_url == "rtsp://test:554/stream1"
         assert reader.camera_id == "cam_001"
         assert reader.reconnect_delay == 3
+        assert reader.connect_timeout == 10.0  # default
+
+    def test_init_stores_custom_connect_timeout(self) -> None:
+        reader = RTSPReader(
+            "rtsp://test:554/stream1", "cam_001", connect_timeout=25.0,
+        )
+        assert reader.connect_timeout == 25.0
+
+    @patch("cv2.VideoCapture")
+    async def test_connect_uses_instance_connect_timeout_by_default(
+        self,
+        mock_vc: MagicMock,
+        rtsp_reader: RTSPReader,
+    ) -> None:
+        """connect() with no explicit timeout arg should use
+        self.connect_timeout -- this is what lets a live config_sync
+        update to rtsp_connect_timeout_sec take effect on the next
+        reconnect() without callers needing to pass it through."""
+        rtsp_reader.connect_timeout = 3.0
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 0
+        mock_vc.return_value = mock_cap
+
+        with patch("asyncio.wait_for", wraps=asyncio.wait_for) as mock_wait_for:
+            await rtsp_reader.connect()
+
+        assert mock_wait_for.call_args.kwargs["timeout"] == 3.0
+
+    def test_config_sync_can_update_reconnect_delay_and_connect_timeout(
+        self, rtsp_reader: RTSPReader,
+    ) -> None:
+        """Simulates what ClientConfigSync.sync_once() does -- plain
+        attribute assignment, no dedicated setter needed."""
+        rtsp_reader.reconnect_delay = 20
+        rtsp_reader.connect_timeout = 15.0
+        assert rtsp_reader.reconnect_delay == 20
+        assert rtsp_reader.connect_timeout == 15.0
 
     def test_is_connected_returns_false_initially(self, rtsp_reader: RTSPReader) -> None:
         """is_connected should return False before connect."""

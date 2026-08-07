@@ -117,3 +117,60 @@ class TestMotionDetector:
         mask = motion_detector.get_motion_mask()
         assert mask is not None
         assert isinstance(mask, np.ndarray)
+
+
+class TestMotionDetectorConfigSync:
+    """Tests for update_config() -- applies connect/config_sync.py's polled
+    config live, without requiring a client restart."""
+
+    def test_update_config_applies_min_area_and_threshold_live(
+        self, motion_detector: MotionDetector,
+    ) -> None:
+        """min_area/threshold/fg_mask_threshold take effect immediately --
+        detect() reads them from self on every call, no rebuild needed."""
+        motion_detector.update_config({
+            "motion_min_area": 9999,
+            "motion_threshold": 0.11,
+            "fg_mask_threshold": 150,
+        })
+        assert motion_detector.min_area == 9999
+        assert motion_detector.threshold == 0.11
+        assert motion_detector._fg_mask_threshold == 150
+
+    def test_update_config_ignores_missing_keys(
+        self, motion_detector: MotionDetector,
+    ) -> None:
+        """An empty/partial config dict must leave unspecified values unchanged."""
+        original_min_area = motion_detector.min_area
+        original_threshold = motion_detector.threshold
+        motion_detector.update_config({})
+        assert motion_detector.min_area == original_min_area
+        assert motion_detector.threshold == original_threshold
+
+    def test_update_config_rebuilds_subtractor_on_history_change(
+        self, motion_detector: MotionDetector,
+    ) -> None:
+        """motion_history is baked into the MOG2 subtractor at construction
+        time, so changing it must rebuild the subtractor object."""
+        old_subtractor = motion_detector._bg_subtractor
+        motion_detector.update_config({"motion_history": 250})
+        assert motion_detector._bg_subtractor is not old_subtractor
+        assert motion_detector._history == 250
+
+    def test_update_config_rebuilds_subtractor_on_var_threshold_change(
+        self, motion_detector: MotionDetector,
+    ) -> None:
+        old_subtractor = motion_detector._bg_subtractor
+        motion_detector.update_config({"motion_var_threshold": 30})
+        assert motion_detector._bg_subtractor is not old_subtractor
+        assert motion_detector._var_threshold == 30
+
+    def test_update_config_does_not_rebuild_subtractor_when_unrelated_keys_change(
+        self, motion_detector: MotionDetector,
+    ) -> None:
+        """Changing only min_area/threshold/fg_mask_threshold must NOT reset
+        the learned background model -- that would defeat the point of a
+        live update (spurious motion right after every poll)."""
+        old_subtractor = motion_detector._bg_subtractor
+        motion_detector.update_config({"motion_min_area": 1234})
+        assert motion_detector._bg_subtractor is old_subtractor

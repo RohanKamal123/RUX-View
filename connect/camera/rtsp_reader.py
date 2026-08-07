@@ -40,17 +40,25 @@ class RTSPReader:
     All blocking OpenCV calls are run in a thread pool.
     """
 
-    def __init__(self, rtsp_url: str, camera_id: str, reconnect_delay: int = 5):
+    def __init__(self, rtsp_url: str, camera_id: str, reconnect_delay: int = 5,
+                 connect_timeout: float = 10.0):
         """Initialize RTSPReader.
 
         Args:
             rtsp_url: RTSP URL of the camera (e.g., rtsp://192.168.1.100:554/stream1).
             camera_id: Unique identifier for this camera.
             reconnect_delay: Seconds to wait before reconnecting on failure.
+                Mirrors config_store's rtsp_reconnect_delay_sec -- settable
+                live via connect/config_sync.py, this constructor default
+                is only what's used before the first sync round-trip.
+            connect_timeout: Default seconds to wait for connect() to open
+                the stream, used when connect() isn't given an explicit
+                timeout. Mirrors config_store's rtsp_connect_timeout_sec.
         """
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
         self.reconnect_delay = reconnect_delay
+        self.connect_timeout = connect_timeout
         self._cap = None
         self._connected = False
         self._stream_info: Optional[StreamInfo] = None
@@ -59,18 +67,24 @@ class RTSPReader:
         self._drain_thread: Optional[threading.Thread] = None
         self._stop_drain = threading.Event()
 
-    async def connect(self, timeout: float = 10.0) -> bool:
+    async def connect(self, timeout: Optional[float] = None) -> bool:
         """Connect to the RTSP stream.
 
         Opens the video capture and reads stream properties.
         Uses a timeout to avoid hanging on unreachable streams.
 
         Args:
-            timeout: Maximum seconds to wait for the connection.
+            timeout: Maximum seconds to wait for the connection. Defaults
+                to ``self.connect_timeout`` (rtsp_connect_timeout_sec) when
+                not given explicitly, so a live config_sync update is
+                picked up on the next reconnect() without callers needing
+                to pass it through.
 
         Returns:
             True if connected successfully, False otherwise.
         """
+        if timeout is None:
+            timeout = self.connect_timeout
         try:
             import cv2
 
