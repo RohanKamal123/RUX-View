@@ -473,6 +473,7 @@ class CameraPipeline:
                         location_id=ctx.location_id,
                         user_id=ctx.user_id,
                         config=ctx.config,
+                        camera_id=ctx.camera_id,
                     )
                     person["person_uid"] = person_uid
                     person["reid_confidence"] = confidence

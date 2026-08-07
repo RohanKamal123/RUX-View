@@ -11,6 +11,7 @@ Uncertainty zone: 0.5-0.72 cosine similarity → calls ai_client.reid_tiebreaker
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -144,17 +145,28 @@ class ReIDEngine:
     async def identify(self, db, frame: np.ndarray,
                          person_result: dict, location_id: str,
                          user_id: str,
-                         config: Optional[dict] = None) -> tuple[str, float]:
+                         config: Optional[dict] = None,
+                         camera_id: Optional[str] = None) -> tuple[str, float]:
         """Identify a person from a frame + AI analysis result.
 
+        Persists the match (or new person) and this sighting's appearance
+        detail to the persons/person_sightings tables when *db* is a real
+        session — this is what makes Re-ID, ghost detection, and
+        repeat-sighting escalation actually work across incidents instead
+        of minting a fresh person_uid every single time. See
+        _persist_sighting() docstring for the persistence semantics.
+
         Args:
-            db: Database session.
+            db: Database session, or None to skip persistence entirely
+                (matching lookups still run if db is given elsewhere).
             frame: Full frame numpy array.
             person_result: Dict from ai_client.analyse_frame() for this person.
             location_id: Location UUID.
             user_id: User UUID.
             config: Optional runtime config dict (e.g. from config_store).
                     ``reid_exact_match_threshold`` is read from it.
+            camera_id: Camera that captured this sighting, for
+                       PersonSighting.camera_id (cross-camera tracking).
 
         Returns:
             (person_uid, confidence) — existing or new PERSON_XXX.
@@ -188,6 +200,10 @@ class ReIDEngine:
         # Tier 1: Check exact match with person_uid from AI analysis
         person_uid = person_result.get("person_uid")
         if person_uid and person_uid.startswith("PERSON_"):
+            await self._persist_sighting(
+                db, person_uid, user_id, location_id, camera_id,
+                embedding_list, person_result, is_new=False,
+            )
             return (person_uid, 1.0)
 
         # Tier 2 & 3: Find similar via pgvector
@@ -200,6 +216,10 @@ class ReIDEngine:
             # No matches — new person
             from uuid import uuid4
             new_uid = f"PERSON_{uuid4().hex[:8].upper()}"
+            await self._persist_sighting(
+                db, new_uid, user_id, location_id, camera_id,
+                embedding_list, person_result, is_new=True,
+            )
             return (new_uid, 0.0)
 
         best_match = similar[0]
@@ -208,6 +228,10 @@ class ReIDEngine:
 
         # Tier 2: Auto-match above threshold
         if best_score >= exact_match_threshold:
+            await self._persist_sighting(
+                db, best_person_uid, user_id, location_id, camera_id,
+                embedding_list, person_result, is_new=False,
+            )
             return (best_person_uid, best_score)
 
         # Tier 3: Uncertainty zone — use AI tiebreaker
@@ -218,6 +242,15 @@ class ReIDEngine:
             sig_b = best_match.get("appearance_signature", "")
 
             tiebreaker_result = await reid_tiebreaker(sig_a, sig_b, best_score)
+            # NOTE: this attributes the sighting to best_person_uid even when
+            # the tiebreaker verdict is "not a match" (pre-existing behavior,
+            # unchanged here — see reid_engine.py history). Persisting matches
+            # whatever identify() decides to return, it doesn't change the
+            # decision itself.
+            await self._persist_sighting(
+                db, best_person_uid, user_id, location_id, camera_id,
+                embedding_list, person_result, is_new=False,
+            )
             if tiebreaker_result.get("match", False):
                 return (best_person_uid, (best_score + tiebreaker_boost) / 2)  # Boost confidence
             return (best_person_uid, best_score)
@@ -225,7 +258,80 @@ class ReIDEngine:
         # Below uncertainty threshold — new person
         from uuid import uuid4
         new_uid = f"PERSON_{uuid4().hex[:8].upper()}"
+        await self._persist_sighting(
+            db, new_uid, user_id, location_id, camera_id,
+            embedding_list, person_result, is_new=True,
+        )
         return (new_uid, 0.0)
+
+    async def _persist_sighting(
+        self, db, person_uid: str, user_id: str, location_id: str,
+        camera_id: Optional[str], embedding: list[float],
+        person_result: dict, is_new: bool,
+    ) -> None:
+        """Create/update the person record and record this sighting.
+
+        Best-effort: persistence failures are logged and swallowed here
+        rather than raised, so a DB hiccup never prevents identify() from
+        returning a usable person_uid for the caller — alerting and the
+        event save downstream matter more than every single Re-ID write
+        landing. The DB session's own commit/rollback (managed by the
+        caller, see CameraPipeline._run_reid) is unaffected by that: a
+        swallowed exception here just means this particular flush didn't
+        happen, not that the whole session aborts.
+
+        No-ops entirely when db is None (tests, or callers that only want
+        the match decision without persistence).
+        """
+        if db is None:
+            return
+        try:
+            from backend.storage import crud as storage_crud
+
+            now = datetime.now(timezone.utc)
+            signature = self.appearance_signature(person_result)
+            appearance_history = {"last_signature": signature, "updated_at": now.isoformat()}
+
+            existing = None if is_new else await storage_crud.get_person(db, person_uid, user_id)
+
+            if existing is None:
+                # Either genuinely new, or a similarity match came back for a
+                # person_uid whose row is gone (deleted, or a race with
+                # another request) — create it so the sighting below has a
+                # parent record either way.
+                await storage_crud.create_person(db, {
+                    "person_uid": person_uid,
+                    "user_id": user_id,
+                    "location_id": location_id,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "sighting_count": 1,
+                    "embedding": embedding,
+                    "appearance_history": appearance_history,
+                })
+            else:
+                await storage_crud.update_person_sighting(db, person_uid, user_id)
+                existing.embedding = embedding
+                existing.appearance_history = appearance_history
+                await db.flush()
+
+            await storage_crud.create_sighting(db, {
+                "person_uid": person_uid,
+                "user_id": user_id,
+                "camera_id": camera_id,
+                "timestamp": now,
+                "clothing_top": person_result.get("clothing"),
+                "hand_objects": ", ".join(person_result.get("hand_objects") or []) or None,
+                "accessories": ", ".join(person_result.get("carried_items") or []) or None,
+                "action": person_result.get("action"),
+                "anomaly_signals": ", ".join(person_result.get("anomaly_signals") or []) or None,
+                "embedding": embedding,
+            })
+        except Exception as exc:
+            logger.error(
+                "Failed to persist person/sighting for %s: %s",
+                person_uid, exc, exc_info=True,
+            )
 
     async def find_similar(self, db, embedding: list[float],
                             location_id: str, limit: int = 5,

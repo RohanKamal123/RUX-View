@@ -5,6 +5,8 @@ All functions are async and use SQLAlchemy 2.0 async sessions.
 Includes pgvector similarity search for person embeddings.
 """
 
+import json
+import logging
 from datetime import date, datetime, timezone
 from typing import Any, AsyncGenerator
 
@@ -27,6 +29,8 @@ from backend.storage.database import (
     ShopAnalytic,
     User,
 )
+
+logger = logging.getLogger(__name__)
 
 # ── Connection ────────────────────────────────────────────────
 
@@ -167,17 +171,26 @@ async def find_similar_persons(
     embedding: list[float],
     location_id: str,
     limit: int = 5,
+    threshold: float = 0.0,
 ) -> list[dict]:
     """Find persons with similar embeddings using pgvector cosine similarity.
 
     Args:
         db: Database session.
         embedding: 512-dimension embedding vector.
-        location_id: Filter by location.
-        limit: Max results.
+        location_id: Filter by location (HARD boundary — Re-ID never
+                     crosses locations).
+        limit: Max candidates to fetch before threshold filtering.
+        threshold: Minimum cosine similarity (0.0-1.0, higher = more
+                   similar) to keep a result. Filtered in Python after
+                   fetching, since results are already ordered closest-first
+                   — dropping below-threshold rows never reorders the rest.
 
     Returns:
-        List of dicts with person data and similarity score.
+        List of dicts with person data, similarity score, and
+        appearance_signature (the person's last recorded appearance, read
+        from Person.appearance_history — used by the Tier 3 AI tiebreaker
+        in reid_engine.identify()). Best match first.
     """
     if db is None:
         logger.error("find_similar_persons called with db=None — skipping")
@@ -185,6 +198,7 @@ async def find_similar_persons(
     stmt = text("""
         SELECT id, person_uid, user_id, location_id, first_seen, last_seen,
                sighting_count, threat_flags, is_staff, user_label,
+               appearance_history,
                1 - (embedding <=> :embedding) AS similarity
         FROM persons
         WHERE location_id = :location_id
@@ -201,7 +215,26 @@ async def find_similar_persons(
         },
     )
     rows = result.fetchall()
-    return [dict(row._mapping) for row in rows]
+    matches = []
+    for row in rows:
+        data = dict(row._mapping)
+        if data["similarity"] < threshold:
+            continue
+        appearance_history = data.pop("appearance_history", None) or {}
+        # This is a raw text() query, not an ORM select() — asyncpg has no
+        # JSON codec registered anywhere in this codebase, so the JSON
+        # column may come back as an encoded string rather than a dict.
+        if isinstance(appearance_history, str):
+            try:
+                appearance_history = json.loads(appearance_history)
+            except (ValueError, TypeError):
+                appearance_history = {}
+        data["appearance_signature"] = (
+            appearance_history.get("last_signature", "")
+            if isinstance(appearance_history, dict) else ""
+        )
+        matches.append(data)
+    return matches
 
 
 async def update_person_sighting(

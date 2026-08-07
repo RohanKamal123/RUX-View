@@ -5,10 +5,12 @@ Tests all 9 SQLAlchemy models and async CRUD operations using
 an in-memory SQLite backend (replacing asyncpg for test speed).
 """
 
+import json
 import pytest
 import pytest_asyncio
 from datetime import date, datetime, timezone
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -276,6 +278,72 @@ async def test_pgvector_similarity_query(
     except Exception:
         # Expected: pgvector not available in SQLite
         pass
+
+
+def _fake_person_row(person_uid: str, similarity: float, appearance_history) -> MagicMock:
+    """Build a fake SQLAlchemy Row for find_similar_persons' raw text() query."""
+    row = MagicMock()
+    row._mapping = {
+        "id": 1,
+        "person_uid": person_uid,
+        "user_id": "user-1",
+        "location_id": "loc-1",
+        "first_seen": None,
+        "last_seen": None,
+        "sighting_count": 1,
+        "threat_flags": 0,
+        "is_staff": False,
+        "user_label": None,
+        "appearance_history": appearance_history,
+        "similarity": similarity,
+    }
+    return row
+
+
+@pytest.mark.asyncio
+async def test_find_similar_persons_filters_by_threshold():
+    """Rows below the similarity threshold should be dropped, best match first.
+
+    Uses a fully mocked session so this doesn't depend on real pgvector —
+    exercises find_similar_persons' Python-side post-filtering directly,
+    which is the part that was silently broken (missing threshold param
+    entirely) before this reid_engine persistence pass.
+    """
+    db = AsyncMock()
+    result = MagicMock()
+    result.fetchall.return_value = [
+        _fake_person_row("PERSON_HIGH", 0.85, {"last_signature": "male|red_shirt|none|walking"}),
+        _fake_person_row("PERSON_LOW", 0.40, {}),
+    ]
+    db.execute = AsyncMock(return_value=result)
+
+    matches = await find_similar_persons(
+        db, [0.1] * 512, "loc-1", limit=5, threshold=0.7,
+    )
+
+    assert len(matches) == 1
+    assert matches[0]["person_uid"] == "PERSON_HIGH"
+    assert matches[0]["appearance_signature"] == "male|red_shirt|none|walking"
+
+
+@pytest.mark.asyncio
+async def test_find_similar_persons_parses_json_string_appearance_history():
+    """appearance_history may come back as a JSON-encoded string (asyncpg has
+    no JSON codec registered in this codebase) rather than a parsed dict —
+    both must work.
+    """
+    db = AsyncMock()
+    result = MagicMock()
+    result.fetchall.return_value = [
+        _fake_person_row(
+            "PERSON_A", 0.9, json.dumps({"last_signature": "female|blue_dress|bag|standing"}),
+        ),
+    ]
+    db.execute = AsyncMock(return_value=result)
+
+    matches = await find_similar_persons(db, [0.1] * 512, "loc-1", limit=5)
+
+    assert matches[0]["appearance_signature"] == "female|blue_dress|bag|standing"
 
 
 @pytest.mark.asyncio
