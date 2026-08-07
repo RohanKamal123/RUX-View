@@ -174,6 +174,7 @@ class HybridCRUD:
                     user_id=user_id,
                     email=updates.get("email"),
                     tier=updates.get("tier", "free"),
+                    telegram_chat_id=updates.get("telegram_chat_id"),
                 )
                 return User(
                     user_id=pg_user.id,
@@ -391,39 +392,43 @@ class HybridCRUD:
         `timestamp_end` and `duration_sec` are written directly to the Event row
         and are used by the session-cleanup loop in triggers.py to close out
         expired camera sessions.
+
+        Uses a single DB session for both the incident_id lookup and the UPDATE,
+        eliminating the previous pattern of two nested `create_session()` calls
+        (one in hybrid_crud + one in pg_crud) which opened two separate connections.
         """
         if self._pg_available:
             try:
-                # Find the event by incident_id only (no user_id filter)
-                pg_event = await self._pg.get_event_by_incident_id(event_id, "")
-                if pg_event is None:
-                    # Fallback: try looking up without user_id filter
-                    async with create_session() as session:
-                        result = await session.execute(
-                            select(EventModel).where(EventModel.incident_id == event_id)
-                        )
-                        pg_event = result.scalar_one_or_none()
-                if pg_event is None:
-                    logger.warning("Event %s not found for update", event_id)
-                    return False
+                async with create_session() as session:
+                    # Look up the event by incident_id
+                    result = await session.execute(
+                        select(EventModel).where(EventModel.incident_id == event_id)
+                    )
+                    pg_event = result.scalar_one_or_none()
+                    if pg_event is None:
+                        logger.warning("Event %s not found for update", event_id)
+                        return False
 
-                # Build gemini_decision dict with alert_message, person_ids, and frame_count
-                gemini_decision = dict(pg_event.gemini_decision or {})
-                if alert_message is not None:
-                    gemini_decision["alert_message"] = alert_message
-                if person_ids is not None:
-                    gemini_decision["person_ids"] = person_ids
-                if frame_count is not None:
-                    gemini_decision["frame_count"] = frame_count
+                    # Build gemini_decision dict with alert_message, person_ids, and frame_count
+                    gemini_decision = dict(pg_event.gemini_decision or {})
+                    if alert_message is not None:
+                        gemini_decision["alert_message"] = alert_message
+                    if person_ids is not None:
+                        gemini_decision["person_ids"] = person_ids
+                    if frame_count is not None:
+                        gemini_decision["frame_count"] = frame_count
 
-                await self._pg.update_event(
-                    event_id=pg_event.id,
-                    threat_level=threat_level,
-                    alert_sent=bool(alert_message) if alert_message else None,
-                    gemini_decision=gemini_decision,
-                    timestamp_end=timestamp_end,
-                    duration_sec=duration_sec,
-                )
+                    # Pass our session down so pg_crud.update_event() reuses it
+                    # instead of opening its own separate connection.
+                    await self._pg.update_event(
+                        event_id=pg_event.id,
+                        threat_level=threat_level,
+                        alert_sent=bool(alert_message) if alert_message else None,
+                        gemini_decision=gemini_decision,
+                        timestamp_end=timestamp_end,
+                        duration_sec=duration_sec,
+                        session=session,
+                    )
                 logger.info(
                     "Updated event %s: threat=%s, alert=%s, persons=%s, frames=%s, end=%s, dur=%s",
                     event_id, threat_level, alert_message, person_ids, frame_count, timestamp_end, duration_sec,

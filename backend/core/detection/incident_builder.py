@@ -21,7 +21,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-GEMINI_INTERVAL_SEC = 120
+GEMINI_INTERVAL_SEC = 60
 _last_gemini_call: dict[str, float] = {}
 _last_track_count: dict[str, int] = {}
 
@@ -36,16 +36,27 @@ class IncidentDecision:
 def should_call_gemini(
     camera_id: str,
     tracking_result,  # TrackingResult from botsort_tracker
+    config: Optional[dict] = None,
 ) -> IncidentDecision:
     """Decide whether this frame warrants a Gemini call.
 
     Args:
         camera_id: Camera identifier for state lookup.
         tracking_result: TrackingResult from botsort_tracker.
+        config: Optional runtime config dict (e.g. from config_store).
+                ``gemini_interval_sec`` and ``track_count_delta``
+                are read from it.
 
     Returns:
         IncidentDecision with should_call_gemini and reason.
     """
+    gemini_interval = (
+        config.get("gemini_interval_sec", 60) if config else GEMINI_INTERVAL_SEC
+    )
+    track_delta = (
+        config.get("track_count_delta", 2) if config else 2
+    )
+
     now = time.time()
     last_call = _last_gemini_call.get(camera_id, 0)
     last_count = _last_track_count.get(camera_id, 0)
@@ -61,17 +72,22 @@ def should_call_gemini(
             enriched_prompt_context=_build_context(tracking_result),
         )
 
-    # Rule 2: Periodic update (120s interval)
-    if tracking_result.tracks and (now - last_call) >= GEMINI_INTERVAL_SEC:
+    # Rule 2: Periodic update (gemini_interval_sec interval)
+    if tracking_result.tracks and (now - last_call) >= gemini_interval:
         _update_state(camera_id, now, current_count)
+        if last_call == 0:
+            # Throttle was reset — first Gemini call for this session
+            reason = "first call for this session"
+        else:
+            reason = f"Periodic update ({int(now - last_call)}s since last call)"
         return IncidentDecision(
             should_call_gemini=True,
-            reason=f"Periodic update ({int(now - last_call)}s since last call)",
+            reason=reason,
             enriched_prompt_context=_build_context(tracking_result),
         )
 
     # Rule 3: Track count changed significantly
-    if abs(current_count - last_count) >= 2:
+    if abs(current_count - last_count) >= track_delta:
         _update_state(camera_id, now, current_count)
         return IncidentDecision(
             should_call_gemini=True,
@@ -84,6 +100,47 @@ def should_call_gemini(
         should_call_gemini=False,
         reason="No significant change detected",
     )
+
+
+def reset_gemini_throttle(camera_id: str) -> None:
+    """Reset per-camera Gemini throttle on session close.
+    
+    When a session ends, pop the last_call timestamp so that
+    a new session on the same camera immediately gets a Gemini
+    evaluation instead of being throttled by the old session's
+    call history.
+    """
+    _last_gemini_call.pop(camera_id, None)
+    _last_track_count.pop(camera_id, None)
+    logger.debug("Gemini throttle reset for camera %s", camera_id)
+
+
+def cleanup_synthetic_camera(camera_id: str) -> None:
+    """Remove all module-level state for a synthetic (clip-analysis) camera.
+
+    # REQUIRED CALLER PATTERN (see clip_analysis.py once built):
+    #
+    #     synthetic_id = f"clip-analysis-{clip_id}"
+    #     try:
+    #         for frame in frames:
+    #             result = await pv2.process_frame(
+    #                 camera_id=synthetic_id, dry_run=True, ...)
+    #     finally:
+    #         cleanup_synthetic_camera(synthetic_id)
+    #         pipeline_manager.cleanup_synthetic_camera(synthetic_id)
+    #
+    # This MUST run even if the clip loop crashes partway
+    # through (bad frame, OOM, timeout) or synthetic camera
+    # state leaks indefinitely across a week of repeated
+    # clip-analysis runs.
+    
+    Called after a clip analysis run completes (success or failure)
+    to prevent synthetic camera entries from accumulating in
+    _last_gemini_call and _last_track_count.
+    """
+    _last_gemini_call.pop(camera_id, None)
+    _last_track_count.pop(camera_id, None)
+    logger.debug("Cleaned up synthetic camera %s from incident_builder", camera_id)
 
 
 def record_no_change(camera_id: str) -> None:

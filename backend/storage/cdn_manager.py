@@ -10,7 +10,7 @@ import time
 import hashlib
 import hmac
 import base64
-from datetime import datetime, timedelta
+from datetime import timezone, datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlencode
@@ -77,7 +77,7 @@ class CDNManager:
         self._store[object_path] = b""
         self._metadata[object_path] = {
             "content_type": content_type,
-            "created": datetime.utcnow(),
+            "created": datetime.now(timezone.utc),
             "cache_ttl": CACHE_TTL_STATIC,
         }
         return self.get_cdn_url(object_path)
@@ -101,7 +101,7 @@ class CDNManager:
         self._store[object_path] = image_data
         self._metadata[object_path] = {
             "content_type": "image/jpeg",
-            "created": datetime.utcnow(),
+            "created": datetime.now(timezone.utc),
             "cache_ttl": CACHE_TTL_THUMBNAIL,
         }
         return self.get_cdn_url(object_path)
@@ -124,7 +124,7 @@ class CDNManager:
         self._store[object_path] = clip_data
         self._metadata[object_path] = {
             "content_type": "video/mp4",
-            "created": datetime.utcnow(),
+            "created": datetime.now(timezone.utc),
             "cache_ttl": CACHE_TTL_CLIP,
         }
         return self.get_cdn_url(object_path)
@@ -141,7 +141,7 @@ class CDNManager:
         self._store[object_path] = pdf_data
         self._metadata[object_path] = {
             "content_type": "application/pdf",
-            "created": datetime.utcnow(),
+            "created": datetime.now(timezone.utc),
             "cache_ttl": CACHE_TTL_RECEIPT,
         }
         return self.get_cdn_url(object_path)
@@ -199,7 +199,7 @@ class CDNManager:
             "action": "invalidate_object",
             "object_path": object_path,
             "cdn_url": url,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def invalidate_prefix(self, prefix: str) -> dict:
@@ -217,7 +217,7 @@ class CDNManager:
             "action": "invalidate_prefix",
             "prefix": prefix,
             "objects_invalidated": len(matching),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     # ------------------------------------------------------------------
@@ -252,7 +252,7 @@ class CDNManager:
             "action": "delete_object",
             "object_path": object_path,
             "existed": existed,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def list_objects(

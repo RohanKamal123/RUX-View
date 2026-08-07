@@ -37,10 +37,18 @@ class _GhostEntry:
 class GhostDetector:
     """Detect persons who entered but haven't been seen leaving."""
 
-    def __init__(self):
-        """Initialize ghost detector with in-memory tracking."""
+    def __init__(self, config: Optional[dict] = None):
+        """Initialize ghost detector with in-memory tracking.
+
+        Args:
+            config: Optional runtime config dict (e.g. from config_store).
+                    ``ghost_check_interval_sec``, ``ghost_high_alert_sec``,
+                    and ``ghost_medium_alert_sec`` are read from it.
+        """
         self._entries: dict[str, _GhostEntry] = {}  # person_uid → entry
-        self._check_interval = 60  # Check every 60 seconds
+        self._check_interval = config.get("ghost_check_interval_sec", 60) if config else 60
+        self._high_alert_sec = config.get("ghost_high_alert_sec", 1800) if config else 1800
+        self._medium_alert_sec = config.get("ghost_medium_alert_sec", 600) if config else 600
 
     async def track_entry(self, person_uid: str, camera_id: str,
                            location_id: str, timestamp: datetime) -> None:
@@ -65,6 +73,12 @@ class GhostDetector:
             person_uid, camera_id, timestamp.isoformat(),
         )
 
+    def set_config(self, config: dict) -> None:
+        """Update thresholds from runtime config (called per-pipeline-frame)."""
+        self._check_interval = config.get("ghost_check_interval_sec", self._check_interval)
+        self._high_alert_sec = config.get("ghost_high_alert_sec", self._high_alert_sec)
+        self._medium_alert_sec = config.get("ghost_medium_alert_sec", self._medium_alert_sec)
+
     async def check_unaccounted(self) -> list[GhostAlert]:
         """Check all tracked entries that haven't been resolved.
 
@@ -80,8 +94,8 @@ class GhostDetector:
 
             elapsed = (now - entry.entry_time).total_seconds()
 
-            # HIGH alert at 30 minutes
-            if elapsed >= 1800 and not entry.high_alert_sent:
+            # HIGH alert at high_alert_sec (default 30 min)
+            if elapsed >= self._high_alert_sec and not entry.high_alert_sent:
                 entry.high_alert_sent = True
                 alerts.append(GhostAlert(
                     person_uid=entry.person_uid,
@@ -96,8 +110,8 @@ class GhostDetector:
                 ))
                 logger.info("HIGH ghost alert for %s", entry.person_uid)
 
-            # MEDIUM alert at 10 minutes
-            elif elapsed >= 600 and not entry.medium_alert_sent:
+            # MEDIUM alert at medium_alert_sec (default 10 min)
+            elif elapsed >= self._medium_alert_sec and not entry.medium_alert_sent:
                 entry.medium_alert_sent = True
                 alerts.append(GhostAlert(
                     person_uid=entry.person_uid,

@@ -15,6 +15,9 @@ Tests cover:
 """
 
 import pytest
+pytest.importorskip("bs4")  # skip if not installed
+
+import pytest
 from bs4 import BeautifulSoup
 
 

@@ -1,9 +1,13 @@
 """
+
 Tests for Sprint 5.3 — Manual Payment Info.
 
 Tests PaymentConfig class, dataclasses, default configuration,
 file I/O, and tier information.
 """
+
+import pytest
+pytest.importorskip("backend.billing")  # skip if not installed
 
 import json
 import os

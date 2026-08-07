@@ -1,0 +1,1483 @@
+{% extends "base.html" %}
+{% block title %}Threshold Tuning{% endblock %}
+{% block head %}
+<style>
+  .tuning-container {
+    max-width: 720px;
+    margin: 0 auto;
+    color: #c9d1d4;
+  }
+
+  .tuning-container h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+    color: #f0f6fc;
+  }
+
+  .tuning-container p.sub {
+    color: #8b949e;
+    margin-bottom: 1.5rem;
+  }
+
+  /* Section header (collapsible) */
+  details.cat-section {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  details.cat-section[open] {
+    background: #161922;
+  }
+
+  details.cat-section summary {
+    cursor: pointer;
+    padding: 10px 16px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #f0f6fc;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  details.cat-section summary::marker {
+    color: #58a6ff;
+  }
+
+  details.cat-section summary .cat-note {
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: #8b949e;
+    background: #252836;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  details.cat-section summary .cat-note.infra {
+    color: #f0883e;
+    background: #2a1f1a;
+  }
+
+  .config-row {
+    border-top: 1px solid #252836;
+    padding: 10px 16px;
+  }
+
+  .config-row label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+    font-size: 0.88rem;
+  }
+
+  .config-row label .key-name {
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .config-row label .current-val {
+    color: #58a6ff;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+
+  .config-row label .default-hint {
+    color: #8b8d9e;
+    font-size: 0.78rem;
+  }
+
+  .config-row input[type="range"] {
+    width: 100%;
+    margin: 3px 0;
+    accent-color: #58a6ff;
+  }
+
+  .config-row .range-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: #8b8d9e;
+  }
+
+  .config-row.modified {
+    background: #1a2035;
+    border-left: 2px solid #f0883e;
+  }
+
+  .config-row.modified .key-name::after {
+    content: " ⚡";
+    color: #f0883e;
+    font-size: 0.8rem;
+  }
+
+  /* ── Tooltip "?" button ── */
+  .key-help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #30363d;
+    color: #8b949e;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: help;
+    margin-left: 5px;
+    vertical-align: middle;
+    line-height: 1;
+    user-select: none;
+    position: relative;
+    border: none;
+    transition: background 0.15s;
+  }
+
+  .key-help-btn:hover {
+    background: #58a6ff;
+    color: #fff;
+  }
+
+  .key-help-tip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 6px);
+    z-index: 100;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 10px 12px;
+    width: 300px;
+    font-size: 0.73rem;
+    font-weight: 400;
+    color: #c9d1d4;
+    line-height: 1.5;
+    text-align: left;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    white-space: normal;
+  }
+
+  .key-help-btn:hover .key-help-tip {
+    display: block;
+  }
+
+  .key-help-tip .tip-ctrl {
+    color: #58a6ff;
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .key-help-tip .tip-default {
+    color: #8b949e;
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .key-help-tip .tip-rationale {
+    color: #8b949e;
+    display: block;
+  }
+
+  .key-help-tip .tip-rationale em {
+    color: #f0883e;
+    font-style: italic;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 1.5rem;
+  }
+
+  .btn-row button {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .btn-save {
+    background: #238636;
+    color: #fff;
+  }
+
+  .btn-save:hover {
+    background: #2ea043;
+  }
+
+  .btn-reset {
+    background: #30363d;
+    color: #c9d1d9;
+    border: 1px solid #484f58 !important;
+  }
+
+  .btn-reset:hover {
+    background: #484f58;
+  }
+
+  .save-msg {
+    text-align: center;
+    color: #3fb950;
+    font-size: 0.9rem;
+    margin-top: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .save-msg.visible {
+    opacity: 1;
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="tuning-container">
+  <h1>Threshold Tuning</h1>
+  <p class="sub">
+    Live-editable parameters backed by Redis. Changes apply on the next frame.
+    Sections marked <strong>infra</strong> require a service restart and do not affect per-frame detection.
+  </p>
+  <div id="config-sections"></div>
+<div id="clip-panel" style="margin-bottom:20px;">
+
+  <!-- A) Header row -->
+  <div style="display:flex;justify-content:space-between;
+              align-items:center;margin-bottom:8px;">
+    <span style="font-weight:700;font-size:.95rem;color:#f0f6fc;">
+      Clip test — full pipeline
+    </span>
+    <span style="font-size:.73rem;color:#f0883e;background:#2a1f1a;
+                 padding:2px 8px;border-radius:4px;
+                 font-weight:600;">
+      dry run · no DB writes · no alerts
+    </span>
+  </div>
+
+  <!-- B) Camera mode selector -->
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+    <label style="font-size:.85rem;color:#c9d1d4;font-weight:600;">
+      Camera mode
+    </label>
+    <select id="ct-mode"
+            style="padding:5px 8px;border-radius:6px;font-size:.8rem;
+                   border:1px solid #30363d;background:#21262d;
+                   color:#c9d1d4;">
+      <option value="indoor" selected>indoor</option>
+      <option value="outdoor">outdoor</option>
+      <option value="parking">parking</option>
+      <option value="shop">shop</option>
+      <option value="night">night</option>
+    </select>
+    <span style="font-size:.68rem;color:#484f58;">
+      affects timing tables and thresholds
+    </span>
+  </div>
+
+  <!-- C) Drop zone -->
+  <div id="dz"
+       style="border:1.5px dashed #30363d;border-radius:8px;
+              padding:28px 16px;text-align:center;cursor:pointer;
+              background:#12151c;transition:border-color .15s;"
+       ondragover="event.preventDefault();this.style.borderColor='#58a6ff'"
+       ondragleave="this.style.borderColor='#30363d'"
+       ondrop="onDrop(event)"
+       onclick="document.getElementById('ct-file').click()">
+    <div style="font-size:24px;margin-bottom:6px;color:#484f58;">⬆</div>
+    <div style="color:#8b949e;font-size:.88rem;margin-bottom:3px;">
+      Drop a video clip here, or click to browse
+    </div>
+    <div style="color:#484f58;font-size:.74rem;">
+      MP4 · MOV · WebM · up to 30 seconds
+    </div>
+    <input id="ct-file" type="file" accept="video/*"
+           style="display:none" onchange="onFileChosen(this.files[0])"/>
+  </div>
+
+  <!-- D) Results panel (hidden until video loaded) -->
+  <div id="ct-loaded" style="display:none;margin-top:12px;">
+
+    <!-- 1. Info bar -->
+    <div id="ct-info"
+         style="font-size:.74rem;color:#8b949e;font-family:monospace;
+                margin-bottom:10px;padding:6px 10px;background:#12151c;
+                border-radius:6px;border:1px solid #21262d;"></div>
+
+    <!-- 2. Dual pane -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;
+                margin-bottom:10px;">
+
+      <div style="position:relative;background:#0d1117;border-radius:6px;
+                  overflow:hidden;">
+        <video id="ct-video" muted playsinline
+               style="width:100%;display:block;aspect-ratio:16/9;
+                      object-fit:contain;"></video>
+        <div style="position:absolute;top:6px;left:8px;
+                    font-size:.63rem;font-weight:700;padding:2px 6px;
+                    border-radius:3px;background:rgba(0,0,0,.65);
+                    color:#8b949e;letter-spacing:.02em;">original</div>
+      </div>
+
+      <div style="position:relative;background:#0d1117;border-radius:6px;
+                  overflow:hidden;">
+        <canvas id="ct-canvas"
+                style="width:100%;display:block;aspect-ratio:16/9;
+                       object-fit:contain;"></canvas>
+        <div style="position:absolute;top:6px;left:8px;
+                    font-size:.63rem;font-weight:700;padding:2px 6px;
+                    border-radius:3px;background:rgba(20,50,100,.65);
+                    color:#58a6ff;letter-spacing:.02em;">detections</div>
+      </div>
+
+    </div>
+
+    <!-- 3. Pipeline stage timeline -->
+    <div id="ct-tl"
+         style="position:relative;height:28px;background:#0d1117;
+                border-radius:6px;border:1px solid #21262d;
+                margin-bottom:3px;overflow:hidden;cursor:pointer;"
+         onclick="tlSeek(event)">
+      <div id="ct-tl-segs"
+           style="position:absolute;inset:0;display:flex;"></div>
+      <div id="ct-tl-cur"
+           style="position:absolute;top:0;width:2px;height:100%;
+                  background:#58a6ff;pointer-events:none;left:0;"></div>
+    </div>
+    <div id="ct-tl-times"
+         style="display:flex;justify-content:space-between;
+                font-size:.63rem;color:#484f58;margin-bottom:10px;
+                padding:0 2px;"></div>
+
+    <!-- 4. Controls row -->
+    <div style="display:flex;gap:8px;align-items:center;
+                margin-bottom:10px;flex-wrap:wrap;">
+      <button onclick="togglePlay()" id="ct-play"
+              style="padding:6px 14px;border-radius:6px;font-size:.82rem;
+                     font-weight:600;cursor:pointer;border:1px solid #30363d;
+                     background:#21262d;color:#c9d1d4;">
+        ▶ Play
+      </button>
+      <select id="ct-fps"
+              style="padding:5px 8px;border-radius:6px;font-size:.8rem;
+                     border:1px solid #30363d;background:#21262d;
+                     color:#c9d1d4;">
+        <option value="1">1 fps</option>
+        <option value="2" selected>2 fps</option>
+        <option value="3">3 fps</option>
+      </select>
+      <span id="ct-mode-display" style="font-size:.75rem;color:#484f58;
+            font-family:monospace;margin-left:4px;"></span>
+      <button onclick="runDetection()" id="ct-run"
+              style="padding:6px 14px;border-radius:6px;font-size:.82rem;
+                     font-weight:600;cursor:pointer;border:none;
+                     background:#1f6feb;color:#fff;">
+        ⚙ Run full pipeline
+      </button>
+      <span id="ct-status"
+            style="font-size:.75rem;color:#8b949e;margin-left:auto;
+                   font-family:monospace;white-space:nowrap;"></span>
+      <button onclick="downloadAnnotatedClip()" id="ct-dl"
+              style="padding:6px 14px;border-radius:6px;font-size:.82rem;
+                     font-weight:600;cursor:pointer;border:1px solid #30363d;
+                     background:#21262d;color:#c9d1d4;display:none;">
+        ⬇ Download Annotated
+      </button>
+    </div>
+
+    <!-- 5. Progress bar (hidden initially) -->
+    <div id="ct-prog-wrap"
+         style="display:none;height:6px;background:#21262d;border-radius:3px;
+                margin-bottom:10px;overflow:hidden;">
+      <div id="ct-prog-bar"
+           style="height:100%;width:0%;background:#58a6ff;border-radius:3px;
+                  transition:width .2s;"></div>
+    </div>
+    <div id="ct-prog-lbl"
+         style="font-size:.72rem;color:#484f58;font-family:monospace;
+                text-align:center;margin-bottom:8px;display:none;"></div>
+
+    <!-- 6. Pipeline funnel stats (5 columns) -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);
+                gap:8px;margin-bottom:10px;">
+      <div style="background:#12151c;border:1px solid #21262d;
+                  border-radius:6px;padding:10px 12px;">
+        <div id="st-total" style="font-size:1.25rem;font-weight:700;
+             color:#f0f6fc;font-variant-numeric:tabular-nums;">—</div>
+        <div style="font-size:.68rem;color:#8b949e;margin-top:2px;">total</div>
+      </div>
+      <div style="background:#12151c;border:1px solid #21262d;
+                  border-radius:6px;padding:10px 12px;">
+        <div id="st-yolo" style="font-size:1.25rem;font-weight:700;
+             color:#8b949e;font-variant-numeric:tabular-nums;">—</div>
+        <div style="font-size:.68rem;color:#8b949e;margin-top:2px;">
+          YOLO filtered</div>
+      </div>
+      <div style="background:#12151c;border:1px solid #21262d;
+                  border-radius:6px;padding:10px 12px;">
+        <div id="st-throttle" style="font-size:1.25rem;font-weight:700;
+             color:#d29922;font-variant-numeric:tabular-nums;">—</div>
+        <div style="font-size:.68rem;color:#8b949e;margin-top:2px;">
+          incident throttled</div>
+      </div>
+      <div style="background:#12151c;border:1px solid #21262d;
+                  border-radius:6px;padding:10px 12px;">
+        <div id="st-gemini" style="font-size:1.25rem;font-weight:700;
+             color:#58a6ff;font-variant-numeric:tabular-nums;">—</div>
+        <div style="font-size:.68rem;color:#8b949e;margin-top:2px;">
+          Gemini called</div>
+      </div>
+      <div style="background:#12151c;border:1px solid #21262d;
+                  border-radius:6px;padding:10px 12px;">
+        <div id="st-alert" style="font-size:1.25rem;font-weight:700;
+             color:#f85149;font-variant-numeric:tabular-nums;">—</div>
+        <div style="font-size:.68rem;color:#8b949e;margin-top:2px;">
+          would alert</div>
+      </div>
+    </div>
+
+    <!-- 7. Current frame detail card -->
+    <div id="ct-frame-detail"
+         style="background:#12151c;border:1px solid #21262d;border-radius:6px;
+                padding:12px;margin-bottom:10px;font-size:.82rem;display:none;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;
+                  flex-wrap:wrap;">
+        <span id="cfd-stage-badge"
+              style="padding:2px 8px;border-radius:4px;font-weight:600;
+                     font-size:.78rem;"></span>
+        <span id="cfd-skip-reason"
+              style="color:#8b949e;font-size:.75rem;"></span>
+        <span id="cfd-threat-badge"
+              style="padding:2px 8px;border-radius:4px;font-weight:600;
+                     font-size:.78rem;"></span>
+      </div>
+      <div id="cfd-alert-msg"
+           style="color:#f0883e;font-size:.78rem;margin-bottom:6px;
+                  max-height:2.6em;overflow:hidden;"></div>
+      <div id="cfd-timings"
+           style="color:#8b949e;font-size:.75rem;font-family:monospace;
+                  margin-bottom:6px;"></div>
+      <div id="cfd-yolo-list"
+           style="margin-bottom:6px;"></div>
+      <div id="cfd-person-ids"
+           style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+    </div>
+
+    <!-- 8. Per-frame result list -->
+    <div id="ct-frame-list"
+         style="max-height:200px;overflow-y:auto;border-radius:6px;
+                border:1px solid #21262d;font-size:.8rem;margin-bottom:8px;">
+      <div style="padding:16px;text-align:center;color:#484f58;">
+        Run pipeline to see per-frame results
+      </div>
+    </div>
+
+    <!-- 9. Config hint -->
+    <div id="ct-hint"
+         style="margin-top:8px;font-size:.72rem;color:#484f58;
+                font-family:monospace;"></div>
+
+  </div><!-- /ct-loaded -->
+</div><!-- /clip-panel -->
+
+  <div class="btn-row">
+    <button class="btn-save" id="btn-save" onclick="saveConfig()">Save</button>
+    <button class="btn-reset" id="btn-reset" onclick="resetConfig()">Reset to Defaults</button>
+  </div>
+  <div id="save-msg" class="save-msg">Saved &#10003;</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // ── Metadata for each config key ──────────────────────────────
+  const KEY_META = {
+    // ── DETECTION ──
+    yolo_confidence_threshold: { label: "YOLO Confidence", min: 0.05, max: 0.95, step: 0.01 },
+    nms_iou_threshold: { label: "NMS IoU Threshold", min: 0.05, max: 0.95, step: 0.01 },
+    yolo_input_size: { label: "YOLO Input Size (px)", min: 320, max: 1280, step: 32 },
+    yolo_jpeg_quality: { label: "YOLO JPEG Quality", min: 10, max: 100, step: 1 },
+    // ── MOTION ──
+    motion_min_area: { label: "Motion Min Area (px²)", min: 500, max: 50000, step: 100 },
+    motion_threshold: { label: "Motion Threshold", min: 0.01, max: 0.50, step: 0.01 },
+    motion_history: { label: "Motion History (frames)", min: 50, max: 2000, step: 50 },
+    motion_var_threshold: { label: "Motion Var Threshold", min: 10, max: 200, step: 1 },
+    fg_mask_threshold: { label: "FG Mask Threshold", min: 50, max: 255, step: 1 },
+    // ── FRAME QUALITY GATES ──
+    brightness_gate_min: { label: "Brightness Gate Min", min: 1, max: 200, step: 1 },
+    blur_gate_min: { label: "Blur Gate Min", min: 1, max: 200, step: 1 },
+    pixel_diff_threshold: { label: "Pixel Diff Threshold", min: 1, max: 100, step: 1 },
+    motion_percent_gate: { label: "Motion Percent Gate", min: 0.1, max: 25.0, step: 0.1 },
+    motion_trigger_confidence: { label: "Motion Trigger Conf.", min: 0.05, max: 0.95, step: 0.01 },
+    // ── TRACKING ──
+    track_match_iou: { label: "Track Match IoU", min: 0.05, max: 0.90, step: 0.01 },
+    lost_track_threshold_sec: { label: "Lost Track (sec)", min: 1, max: 300, step: 1 },
+    track_ttl_sec: { label: "Track TTL (sec)", min: 30, max: 1800, step: 10 },
+    // ── INCIDENTS / GEMINI ──
+    gemini_interval_sec: { label: "Gemini Interval (sec)", min: 10, max: 600, step: 5 },
+    track_count_delta: { label: "Track Count Delta", min: 1, max: 10, step: 1 },
+    gemini_confidence_floor: { label: "Gemini Confidence Floor", min: 0.1, max: 0.95, step: 0.01 },
+    gemini_min_interval_sec: { label: "Gemini Min Interval (s)", min: 1.0, max: 30.0, step: 0.5 },
+    per_incident_throttle_sec: { label: "Per-Incident Throttle", min: 0, max: 120, step: 1 },
+    session_timeout_sec: { label: "Session Timeout (sec)", min: 30, max: 600, step: 5 },
+    // ── RE-ID ──
+    reid_exact_match_threshold: { label: "Re-ID Exact Match", min: 0.20, max: 0.99, step: 0.01 },
+    reid_uncertain_min: { label: "Re-ID Uncertain Min", min: 0.20, max: 0.80, step: 0.01 },
+    reid_uncertain_max: { label: "Re-ID Uncertain Max", min: 0.30, max: 0.99, step: 0.01 },
+    reid_find_similar_limit: { label: "Re-ID Similar Limit", min: 1, max: 50, step: 1 },
+    reid_pgvector_threshold: { label: "Re-ID pgvector Thr.", min: 0.1, max: 0.95, step: 0.01 },
+    reid_tiebreaker_boost: { label: "Re-ID Tiebreaker Boost", min: 0.5, max: 0.99, step: 0.01 },
+    // ── GHOST / REPEAT ──
+    ghost_check_interval_sec: { label: "Ghost Check Interval", min: 10, max: 600, step: 5 },
+    ghost_high_alert_sec: { label: "Ghost HIGH Alert (sec)", min: 60, max: 7200, step: 60 },
+    ghost_medium_alert_sec: { label: "Ghost MEDIUM Alert (s)", min: 60, max: 3600, step: 60 },
+    repeat_reset_timeout_hours: { label: "Repeat Reset (hours)", min: 1, max: 72, step: 1 },
+    night_start_hour: { label: "Night Start (hour)", min: 0, max: 23, step: 1 },
+    night_end_hour: { label: "Night End (hour)", min: 0, max: 23, step: 1 },
+    // ── ALERTS ──
+    alert_retry_interval_sec: { label: "Alert Retry Interval", min: 10, max: 600, step: 5 },
+    alert_max_retries: { label: "Alert Max Retries", min: 1, max: 10, step: 1 },
+    telegram_timeout_sec: { label: "Telegram Timeout (sec)", min: 5.0, max: 60.0, step: 1.0 },
+    // ── STORAGE / DB ──
+    db_pool_size: { label: "DB Pool Size", min: 1, max: 20, step: 1 },
+    db_max_overflow: { label: "DB Max Overflow", min: 0, max: 10, step: 1 },
+    db_pool_timeout_sec: { label: "DB Pool Timeout (sec)", min: 1, max: 60, step: 1 },
+    db_connect_timeout_sec: { label: "DB Connect Timeout (s)", min: 1, max: 60, step: 1 },
+    pg_find_similar_limit: { label: "pgvector Similar Limit", min: 1, max: 50, step: 1 },
+    // ── ACCOUNT / QUOTA ──
+    max_cameras_per_user: { label: "Max Cameras / User", min: 1, max: 100, step: 1 },
+    // ── CACHING ──
+    cache_ttl_static_sec: { label: "Cache TTL — Static", min: 0, max: 86400, step: 300 },
+    cache_ttl_thumbnail_sec: { label: "Cache TTL — Thumbnail", min: 0, max: 259200, step: 300 },
+    cache_ttl_clip_sec: { label: "Cache TTL — Clip", min: 0, max: 86400, step: 300 },
+    cache_ttl_receipt_sec: { label: "Cache TTL — Receipt", min: 0, max: 86400, step: 300 },
+    // ── RETENTION ──
+    retention_free_days: { label: "Retention — Free", min: 1, max: 90, step: 1 },
+    retention_household_days: { label: "Retention — Household", min: 1, max: 365, step: 1 },
+    retention_business_days: { label: "Retention — Business", min: 1, max: 365, step: 1 },
+    transcript_retention_days: { label: "Transcript Retention", min: 1, max: 90, step: 1 },
+    max_clip_duration_household_sec: { label: "Max Clip — Household", min: 5, max: 120, step: 5 },
+    max_clip_duration_business_sec: { label: "Max Clip — Business", min: 5, max: 300, step: 5 },
+    // ── RTSP / CAMERA CLIENT ──
+    rtsp_reconnect_delay_sec: { label: "RTSP Reconnect Delay", min: 1, max: 60, step: 1 },
+    rtsp_connect_timeout_sec: { label: "RTSP Connect Timeout", min: 1.0, max: 30.0, step: 1.0 },
+    // ── AI CLIENT ──
+    gemini_max_output_tokens: { label: "Gemini Max Tokens", min: 256, max: 8192, step: 256 },
+    gemini_digest_word_limit: { label: "Gemini Digest Word Cap", min: 50, max: 2000, step: 50 },
+  };
+
+  // ── Tooltip / inline docs for each key ────────────────────────
+  // Sourced from NUMERICAL_AUDIT.md Controls column + original source comments/docstrings.
+  // Where source had no documented rationale, "No documented rationale found" is stated.
+  const KEY_HELP = {
+    // ── DETECTION ──
+    yolo_confidence_threshold:
+      "Controls: Detection acceptance gate (yolo_detector.py line 33). Objects with confidence ≥ threshold are retained; below are discarded.\n" +
+      "Default rationale: No documented rationale found in source. Appears to be an initial estimate — 0.35 is a common YOLO baseline, but no explanation of why 0.35 vs 0.25 or 0.50.",
+    nms_iou_threshold:
+      "Controls: Non-Maximum Suppression IoU (yolo_detector.py line 34). Overlapping boxes with IoU > threshold: lower-confidence box suppressed.\n" +
+      "Default rationale: No documented rationale found in source. 0.45 is a standard NMS default in YOLO literature.",
+    yolo_input_size:
+      "Controls: YOLO ONNX model input resolution in px (yolo_detector.py line 35). 640×640 = precision/performance tradeoff.\n" +
+      "Default rationale: No documented rationale found in source. 640 is the standard YOLOv8 input size — likely chosen because the model was trained at this resolution.",
+    yolo_jpeg_quality:
+      "Controls: JPEG quality for annotated frames sent to Gemini (yolo_detector.py line 316).\n" +
+      "Default rationale: No documented rationale found in source. 85 is a common JPEG quality default — balances file size vs visual fidelity for Gemini analysis.",
+    // ── MOTION ──
+    motion_min_area:
+      "Controls: Minimum contour area in px² to count as motion (motion_detector.py line 104). Smaller contours are ignored.\n" +
+      "Default rationale: No documented rationale found. At 1080p, 8000 px² ≈ 90×90 px box. Appears chosen to filter noise/dust/shadows.",
+    motion_threshold:
+      "Controls: MOG2 background subtractor sensitivity (motion_detector.py line 41). Lower = detects smaller motions.\n" +
+      "Default rationale: No documented rationale found in source. 0.05 is a moderately sensitive MOG2 default.",
+    motion_history:
+      "Controls: MOG2 background model history in frames (motion_detector.py line 52).\n" +
+      "Default rationale: No documented rationale found in source. 500 frames ≈ 16.7s at 30fps — moderate adaptation speed.",
+    motion_var_threshold:
+      "Controls: MOG2 variance threshold (motion_detector.py line 52). Higher = less sensitive to lighting changes.\n" +
+      "Default rationale: No documented rationale found in source. 56 is an OpenCV default for MOG2 varThreshold.",
+    fg_mask_threshold:
+      "Controls: Binary threshold applied to foreground mask (motion_detector.py line 85). Pixels below threshold are zeroed.\n" +
+      "Default rationale: No documented rationale found in source. 200 is a high binarization threshold — only confidently foreground pixels survive.",
+    // ── FRAME QUALITY GATES ──
+    brightness_gate_min:
+      "Controls: Mean brightness floor (pipeline.py line 174). Frames with mean brightness below threshold → too dark, skipped.\n" +
+      "Default rationale: No documented rationale found in source. 30 is a low light level — likely chosen as minimum for any useful visual analysis.",
+    blur_gate_min:
+      "Controls: Laplacian variance floor (pipeline.py line 175). Frames with variance below threshold → too blurry, skipped.\n" +
+      "Default rationale: No documented rationale found in source. 50 is a moderate sharpness floor.",
+    pixel_diff_threshold:
+      "Controls: Pixel intensity diff threshold (pipeline.py line 176). Changes below this threshold are ignored in motion comparison.\n" +
+      "Default rationale: No documented rationale found in source. 25 on 0-255 scale ≈ 10% intensity change — filters sensor noise.",
+    motion_percent_gate:
+      "Controls: Minimum % of pixels changed vs previous frame (pipeline.py line 177). Below threshold → skip.\n" +
+      "Default rationale: No documented rationale found in source. 2.0% is a low bar — at 1080p that's ~41k pixels changed.",
+    motion_trigger_confidence:
+      "Controls: Legacy motion gate (triggers.py line 405). Confidence > 0.5 = trigger, ≤ 0.5 = skip.\n" +
+      "Default rationale: No documented rationale found in source. 0.5 is a natural binary threshold midpoint — this is a hardcoded ternary check, not a tunable parameter.",
+    // ── TRACKING ──
+    track_match_iou:
+      "Controls: Minimum IoU to match a detection to an existing track (botsort_tracker.py line 179). Below threshold → new track.\n" +
+      "Default rationale: No documented rationale found in source. 0.25 is a low IoU threshold — tolerates significant position changes between frames.",
+    lost_track_threshold_sec:
+      "Controls: A track not matched in the current frame is 'lost' only if last_seen is older than this (botsort_tracker.py line 132).\n" +
+      "Default rationale: No documented rationale found in source. 30s tolerates brief occlusions before declaring track lost.",
+    track_ttl_sec:
+      "Controls: Redis TTL on track state (botsort_tracker.py line 146). Track data deleted if no updates for this many seconds.\n" +
+      "Default rationale: No documented rationale found in source. Cross-reference: session_timeout_sec = 180s, so track data (300s) outlives sessions by 2 min as safety margin.",
+    // ── INCIDENTS / GEMINI ──
+    gemini_interval_sec:
+      "Controls: Per-camera Gemini call rate limit (incident_builder.py line 24). If periodic evaluation was done within this many seconds → skip Gemini.\n" +
+      "Default rationale: Code internally inconsistent — docstring claims 120s but actual value is 60s (see NUMERICAL_AUDIT.md §2 Finding #1). No documented rationale for either value.",
+    track_count_delta:
+      "Controls: Track count change threshold for triggering Gemini (incident_builder.py line 74). If track count changes by ±threshold or more → call Gemini.\n" +
+      "Default rationale: No documented rationale found in source. A delta of ±2 is a low bar — in busy scenes may fire unnecessarily (NUMERICAL_AUDIT.md §7 Finding #7).",
+    gemini_confidence_floor:
+      "Controls: Gemini structured analysis confidence floor (ai_client.py line 403). If confidence < 0.6 → silently discarded (returns {}).\n" +
+      "Default rationale: No documented rationale found in source. 0.6 ensures only moderate-to-high confidence results pass through to incident processing.",
+    gemini_min_interval_sec:
+      "Controls: Global rate limiter for ALL Gemini calls (ai_client.py line 39). If last call was within this many seconds → caller waits then is allowed or rejected.\n" +
+      "Default rationale: No documented rationale found in source. 8.0s is cost- and quota-critical: limits max Gemini calls to ~7.5/min globally.",
+    per_incident_throttle_sec:
+      "Controls: Per-incident Gemini throttle in pipeline (pipeline.py lines 87-92). Set to 0 (disabled) — the global 8s floor and per-camera 60s ceiling are considered sufficient.\n" +
+      "Default rationale: Code comments explain this was explicitly disabled (pipeline.py lines 87-90): middle layer added 'nothing but extra dead time.'",
+    session_timeout_sec:
+      "Controls: Session extend-vs-create boundary (triggers.py line 42). Frames within threshold of last motion extend the session; ≥ threshold creates a new session. Also used by cleanup loop to detect stale sessions.\n" +
+      "Default rationale: No documented rationale found in source. Likely reasoning (not documented in source): 180s (3 min) tolerates brief occlusions while keeping separate incidents unmixed. Cross-reference: track_ttl_sec = 300s — tracks outlive sessions by 2 min as safety margin.",
+    // ── RE-ID ──
+    reid_exact_match_threshold:
+      "Controls: Cosine similarity floor for auto-matching (reid_engine.py line 21). Score ≥ threshold → auto-match WITHOUT Gemini call.\n" +
+      "Default rationale: No documented rationale found in source. Forms upper bound of uncertainty zone — uncertain_max uses same 0.72 to create a gapless three-tier system: ≥0.72 = free auto-match, 0.50-0.72 = Gemini tiebreaker, <0.50 = new ID.",
+    reid_uncertain_min:
+      "Controls: Uncertainty zone lower bound (reid_engine.py line 22). Score in [uncertain_min, uncertain_max] → call Gemini tiebreaker.\n" +
+      "Default rationale: No documented rationale found in source. 0.50 chosen as a natural midpoint — below this, similarity is too low to warrant a paid AI call.",
+    reid_uncertain_max:
+      "Controls: Uncertainty zone upper bound (reid_engine.py line 23). Same value as exact_match_threshold — ensures gap-free tier system.\n" +
+      "Default rationale: No documented rationale found in source. Set identical to EXACT_MATCH_THRESHOLD (0.72) to close the gap between auto-match and uncertain zones intentionally.",
+    reid_find_similar_limit:
+      "Controls: Max candidate results from pgvector query (reid_engine.py lines 182, 216).\n" +
+      "Default rationale: No documented rationale found in source. 5 candidates limits vector search cost — fewer results to compare against reduces latency.",
+    reid_pgvector_threshold:
+      "Controls: Cosine distance threshold for pgvector find_similar_persons (pg_crud.py line 251).\n" +
+      "Default rationale: No documented rationale found in source. 0.7 is a moderate similarity threshold — balances recall vs precision for vector search.",
+    reid_tiebreaker_boost:
+      "Controls: Anchor in averaging formula when Gemini confirms a match (reid_engine.py line 207): confidence = (best_score + boost) / 2.\n" +
+      "Default rationale: Comment explains usage (reid_engine.py line 68): 'Not a standalone threshold — used inside the averaging formula when Gemini confirms a match.' 0.9 is a high boost — Gemini confirmation strongly pulls the average up.",
+    // ── GHOST / REPEAT ──
+    ghost_check_interval_sec:
+      "Controls: Periodic ghost scan interval in seconds (ghost_detector.py line 154, default at line 49).\n" +
+      "Default rationale: No documented rationale found in source. 60s = check every minute for persons tracked too long without exit.",
+    ghost_high_alert_sec:
+      "Controls: HIGH alert threshold (ghost_detector.py line 98). Person tracked ≥ threshold without exit → HIGH alert.\n" +
+      "Default rationale: Comment at line 97 says 'HIGH alert at high_alert_sec (default 30 min)'. 1800s = 30 min — a person still present after 30 min is a serious concern.",
+    ghost_medium_alert_sec:
+      "Controls: MEDIUM alert threshold (ghost_detector.py line 100). Person tracked ≥ threshold without exit → MEDIUM alert.\n" +
+      "Default rationale: Comment at line 57 says schedules checks at '10min (MEDIUM) and 30min (HIGH)'. 600s = 10 min — a person present 10+ min is worth attention.",
+    repeat_reset_timeout_hours:
+      "Controls: Sighting count reset window (repeat_sighting.py line 23). If hours since last sighting exceed threshold → count resets.\n" +
+      "Default rationale: Comment at line 22 says 'Reset timeout: 6 hours of no sighting'. 6 hours = half a day — reasonable window to distinguish 'repeat today' from 'happened yesterday.'",
+    night_start_hour:
+      "Controls: Night hours start (repeat_sighting.py line 26). Used for faster night escalation rules.\n" +
+      "Default rationale: Comment at line 26 says '# 10 PM'. 22 = 10 PM — standard evening/night boundary.",
+    night_end_hour:
+      "Controls: Night hours end (repeat_sighting.py line 27).\n" +
+      "Default rationale: Comment at line 27 says '# 6 AM'. 6 = 6 AM — standard dawn boundary.",
+    // ── ALERTS ──
+    alert_retry_interval_sec:
+      "Controls: Seconds between emergency alert retries (alert_router.py line 24).\n" +
+      "Default rationale: Comment says 'seconds between retries' (line 24). 90s = 1.5 min between retry attempts — not too fast (avoid spam), not too slow (emergency response time).",
+    alert_max_retries:
+      "Controls: Max retry attempts for emergency alerts (alert_router.py line 25). After threshold → escalate to secondary contact.\n" +
+      "Default rationale: Comment says 'max retries before escalation' (line 25). 3 retries at 90s intervals = 4.5 min before escalation.",
+    telegram_timeout_sec:
+      "Controls: HTTP client timeout for Telegram API requests in seconds (telegram_client.py line 33).\n" +
+      "Default rationale: Comment says 'HTTP client timeout' (line 33). 30.0s is a generous timeout for an external API call — Telegram typically responds in < 2s.",
+    // ── STORAGE / DB ──
+    db_pool_size:
+      "Controls: SQLAlchemy connection pool — max persistent connections (engine.py line 61).\n" +
+      "Default rationale: No documented rationale found in source. 3 persistent connections for a single-instance Cloud Run service — modest but adequate for low concurrency (concurrency=1).",
+    db_max_overflow:
+      "Controls: Max overflow connections (engine.py line 62). Total connections = pool_size + max_overflow.\n" +
+      "Default rationale: No documented rationale found in source. 2 overflow connections means max 5 total DB connections — conservative for serverless.",
+    db_pool_timeout_sec:
+      "Controls: Seconds to wait for a pooled connection before timeout (engine.py line 63).\n" +
+      "Default rationale: No documented rationale found in source. 15s is a reasonable wait for a pooled connection to free up.",
+    db_connect_timeout_sec:
+      "Controls: PostgreSQL connection timeout in seconds (engine.py line 65, connect_args timeout).\n" +
+      "Default rationale: No documented rationale found in source. 15s is the asyncpg default for connection timeout.",
+    pg_find_similar_limit:
+      "Controls: Default rows returned by find_similar_persons (pg_crud.py line 252).\n" +
+      "Default rationale: No documented rationale found in source. 10 is larger than reid_find_similar_limit (5) since this is a lower-level query where the Re-ID engine will further filter results.",
+    // ── ACCOUNT / QUOTA ──
+    max_cameras_per_user:
+      "Controls: Hardcoded camera limit per user (hybrid_crud.py lines 84, 254). Also in test_camera_limits.py.\n" +
+      "Default rationale: No documented rationale found in source. 20 is a round number — appears arbitrary, not empirically determined from hardware or cost analysis (NUMERICAL_AUDIT.md §13 Finding #6).",
+    // ── CACHING ──
+    cache_ttl_static_sec:
+      "Controls: Static assets cache TTL in seconds (test_cdn_manager.py assertion).\n" +
+      "Default rationale: Comment says 'Static = 1 hour' (NUMERICAL_AUDIT.md §12). 3600s = 1 hour — standard for rarely-changed static assets.",
+    cache_ttl_thumbnail_sec:
+      "Controls: Thumbnail cache TTL in seconds (test_cdn_manager.py assertion).\n" +
+      "Default rationale: Comment says 'Thumbnails = 24 hours' (NUMERICAL_AUDIT.md §12). 86400s = 24h — thumbnails change at most daily (new detections).",
+    cache_ttl_clip_sec:
+      "Controls: Clip cache TTL in seconds (test_cdn_manager.py assertion). 0 = no caching — clips fetched fresh every request.\n" +
+      "Default rationale: 0 chosen because clips contain security footage that must always be current. Caching a stale clip could show a user an incident already resolved (verified by test assertion).",
+    cache_ttl_receipt_sec:
+      "Controls: Receipt cache TTL in seconds (test_cdn_manager.py assertion). 0 = no caching.\n" +
+      "Default rationale: 0 chosen because receipt data must be real-time — caching could show stale payment status (verified by test assertion).",
+    // ── RETENTION ──
+    retention_free_days:
+      "Controls: Free-tier retention period in days (NUMERICAL_AUDIT.md §12 test_cleanup.py).\n" +
+      "Default rationale: No documented rationale found in source. 7 days is a short retention — likely a free-tier limitation to control storage costs.",
+    retention_household_days:
+      "Controls: Household-tier retention period in days (NUMERICAL_AUDIT.md §12 test_cleanup.py).\n" +
+      "Default rationale: No documented rationale found in source. 30 days ≈ 1 month — standard for consumer-grade security camera storage.",
+    retention_business_days:
+      "Controls: Business-tier retention period in days (NUMERICAL_AUDIT.md §12 test_cleanup.py).\n" +
+      "Default rationale: No documented rationale found in source. 90 days ≈ 3 months — standard for business security compliance.",
+    transcript_retention_days:
+      "Controls: Transcript retention period in days (NUMERICAL_AUDIT.md §12 test_cleanup.py).\n" +
+      "Default rationale: No documented rationale found in source. 3 days is very short — transcripts contain Gemini analysis text which is cheap to store but may have privacy implications.",
+    max_clip_duration_household_sec:
+      "Controls: Household max clip length in seconds (test_clips.py assertion).\n" +
+      "Default rationale: No documented rationale found in source. 30s is a reasonable clip length for household events — short enough to review quickly, long enough to see context.",
+    max_clip_duration_business_sec:
+      "Controls: Business max clip length in seconds (test_clips.py assertion).\n" +
+      "Default rationale: No documented rationale found in source. 60s is double the household limit — businesses need longer clips for incident review.",
+    // ── RTSP / CAMERA CLIENT ──
+    rtsp_reconnect_delay_sec:
+      "Controls: Seconds to wait between RTSP reconnection attempts (rtsp_reader.py line 43 default, line 236).\n" +
+      "Default rationale: No documented rationale found in source. 5s gives the camera time to recover between reconnect attempts — not too aggressive (avoid flooding), not too slow (acceptable downtime).",
+    rtsp_connect_timeout_sec:
+      "Controls: Max seconds to wait for RTSP stream open (rtsp_reader.py line 62).\n" +
+      "Default rationale: No documented rationale found in source. 10.0s is a generous timeout for a local-network RTSP stream — typically connects in < 1s.",
+    // ── AI CLIENT ──
+    gemini_max_output_tokens:
+      "Controls: Max output tokens for all Gemini calls (ai_client.py line 44). Prevents unbounded 8000+ token responses on unusual frames.\n" +
+      "Default rationale: Code comment at ai_client.py line 42-43: 'Prevents unbounded 8000+ token responses on unusual frames. 2048 provides safe headroom for multi-person structured JSON.'",
+    gemini_digest_word_limit:
+      "Controls: Free-tier digest word cap in words (ai_client.py line 166 = _truncate_text, used at lines 983, 1010). Business tier not truncated.\n" +
+      "Default rationale: No documented rationale found in source beyond being the '_truncate_text' max. 200 words ≈ 3-4 paragraphs — keeps free-tier digests concise.",
+  };
+
+  // Section display order & labels
+  const SECTION_ORDER = [
+    { key: "DETECTION", label: "Detection" },
+    { key: "MOTION", label: "Motion" },
+    { key: "FRAME_QUALITY_GATES", label: "Frame Quality Gates" },
+    { key: "TRACKING", label: "Tracking" },
+    { key: "INCIDENTS_GEMINI", label: "Incidents & Gemini" },
+    { key: "RE_ID", label: "Re-ID" },
+    { key: "GHOST_REPEAT", label: "Ghost & Repeat Sighting" },
+    { key: "ALERTS", label: "Alerts" },
+    { key: "STORAGE_DB", label: "Storage & Database" },
+    { key: "ACCOUNT_QUOTA", label: "Account & Quota" },
+    { key: "CACHING", label: "Caching" },
+    { key: "RETENTION", label: "Retention" },
+    { key: "RTSP_CAMERA_CLIENT", label: "Camera & RTSP" },
+    { key: "AI_CLIENT", label: "AI Client" },
+  ];
+
+  let currentValues = {};
+  let defaultValues = {};
+  let modifiedKeys = [];
+  let categoryGroups = {};
+  let liveEffective = [];
+
+  async function fetchConfig() {
+    const resp = await fetch("/api/config/thresholds");
+    const data = await resp.json();
+    currentValues = data.values || {};
+    defaultValues = data.defaults || {};
+    modifiedKeys = data.modified_keys || [];
+    categoryGroups = data.category_groups || {};
+    liveEffective = data.live_effective || [];
+    renderConfig();
+  }
+
+  function helpTip(key) {
+    const text = KEY_HELP[key];
+    if (!text) return "";
+    const parts = text.split("\n");
+    const ctrl = parts[0] ? parts[0].replace("Controls: ", "") : "";
+    const rationale = parts.slice(1).join("\n").replace("Default rationale: ", "");
+    // Split the rationale into tip-default + tip-rationale
+    return `<span class="key-help-btn" tabindex="0">?<span class="key-help-tip"><span class="tip-ctrl">${ctrl}</span><span class="tip-default">default: ${defaultValues[key]}</span><span class="tip-rationale">${rationale}</span></span></span>`;
+  }
+
+  function renderConfig() {
+    const container = document.getElementById("config-sections");
+    container.innerHTML = "";
+
+    for (const sec of SECTION_ORDER) {
+      const keys = categoryGroups[sec.key] || [];
+      if (keys.length === 0) continue;
+
+      const isLive = liveEffective.some(k => keys.includes(k));
+      const isExpanded = isLive;
+      const isInfra = !isLive;
+
+      const details = document.createElement("details");
+      details.className = "cat-section";
+      if (isExpanded) details.setAttribute("open", "");
+
+      const summary = document.createElement("summary");
+      const note = isInfra
+        ? '<span class="cat-note infra">infra — requires restart, no effect on detection</span>'
+        : '<span class="cat-note">live effective</span>';
+      summary.innerHTML = `${sec.label} ${note}`;
+      details.appendChild(summary);
+
+      for (const key of keys) {
+        const meta = KEY_META[key];
+        if (!meta) continue;
+
+        const val = currentValues[key] ?? defaultValues[key] ?? meta.min;
+        const def = defaultValues[key];
+        const isModified = modifiedKeys.includes(key);
+
+        const row = document.createElement("div");
+        row.className = "config-row" + (isModified ? " modified" : "");
+        row.innerHTML = `
+        <label>
+          <span><span class="key-name">${meta.label}</span>${helpTip(key)}
+            <span class="default-hint">(default: ${def})</span></span>
+          <span class="current-val" id="val-${key}">${val}</span>
+        </label>
+        <input type="range" id="slider-${key}"
+               min="${meta.min}" max="${meta.max}" step="${meta.step}"
+               value="${val}" oninput="onSliderChange('${key}')" />
+        <div class="range-labels">
+          <span>${meta.min}</span>
+          <span>${meta.max}</span>
+        </div>
+      `;
+        details.appendChild(row);
+      }
+
+      container.appendChild(details);
+    }
+  }
+
+  function onSliderChange(key) {
+    const slider = document.getElementById("slider-" + key);
+    const valDisplay = document.getElementById("val-" + key);
+    currentValues[key] = parseFloat(slider.value);
+    valDisplay.textContent = currentValues[key];
+  }
+
+  async function saveConfig() {
+    const btn = document.getElementById("btn-save");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    try {
+      const resp = await fetch("/api/config/thresholds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentValues),
+      });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      await fetchConfig();
+      showSaved();
+    } catch (err) {
+      alert("Save failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+  }
+
+  async function resetConfig() {
+    if (!confirm("Reset all thresholds to defaults?")) return;
+    const btn = document.getElementById("btn-reset");
+    btn.disabled = true;
+    try {
+      await fetch("/api/config/thresholds/reset", { method: "POST" });
+      await fetchConfig();
+      showSaved();
+    } catch (err) {
+      alert("Reset failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  let saveTimer = null;
+  function showSaved() {
+    const el = document.getElementById("save-msg");
+    el.classList.add("visible");
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => el.classList.remove("visible"), 2000);
+  }
+
+  fetchConfig();
+
+  // ═══════════════════════════════════════════════════════════════
+  // Clip Test (PipelineV2 dry-run) — state & UI logic
+  // ═══════════════════════════════════════════════════════════════
+
+  // ── State ─────────────────────────────────────────────────────
+  let ctFile = null;
+  let ctDuration = 0;
+  let ctResults = [];         // Array of frame result objects from stream
+  let ctMeta = null;          // meta line from stream
+  let ctSelectedFrame = null; // currently selected frame result
+  let ctRunning = false;
+
+  // Stage colors (pipeline funnel)
+  const STAGE_COLORS = {
+    yolo_gate: "#484f58",
+    incident_builder: "#d29922",
+    gemini_no_change: "#58a6ff",
+    complete_low: "#3fb950",
+    complete_high: "#f85149",
+  };
+
+  function getStageColor(r) {
+    const stage = r.pipeline_stage_reached || "";
+    if (stage === "yolo_gate") return STAGE_COLORS.yolo_gate;
+    if (stage === "incident_builder") return STAGE_COLORS.incident_builder;
+    if (stage === "gemini" || stage === "complete") {
+      if (r.change_detected === false) return STAGE_COLORS.gemini_no_change;
+      const tl = (r.threat_level || "LOW").toUpperCase();
+      if (tl === "HIGH" || tl === "CRITICAL" || tl === "EMERGENCY")
+        return STAGE_COLORS.complete_high;
+      return STAGE_COLORS.complete_low;
+    }
+    return STAGE_COLORS.yolo_gate;
+  }
+
+  // ── File loading ──────────────────────────────────────────────
+
+  function onDrop(e) {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f) onFileChosen(f);
+  }
+
+  function onFileChosen(file) {
+    if (!file) return;
+    ctFile = file;
+    ctResults = [];
+    ctMeta = null;
+    ctSelectedFrame = null;
+
+    const video = document.getElementById("ct-video");
+    video.src = URL.createObjectURL(file);
+    video.load();
+
+    video.onloadedmetadata = function () {
+      ctDuration = video.duration;
+      document.getElementById("ct-loaded").style.display = "block";
+
+      const sz = (file.size / 1024 / 1024).toFixed(1);
+      document.getElementById("ct-info").textContent =
+        file.name + " · " + sz + " MB · " + ctDuration.toFixed(1) + "s";
+
+      const canvas = document.getElementById("ct-canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      buildTimeLabels();
+      resetAll();
+    };
+
+    video.ontimeupdate = function () {
+      const cur = video.currentTime;
+      const pct = ctDuration > 0 ? (cur / ctDuration) * 100 : 0;
+      document.getElementById("ct-tl-cur").style.left = pct + "%";
+
+      // Find nearest frame in results
+      if (ctResults.length > 0) {
+        let best = ctResults[0];
+        for (const r of ctResults) {
+          if (Math.abs(r.timestamp_sec - cur) < Math.abs(best.timestamp_sec - cur))
+            best = r;
+        }
+        if (best !== ctSelectedFrame) {
+          ctSelectedFrame = best;
+          updateFrameDetail(best);
+        }
+      }
+    };
+  }
+
+  // ── Frame extraction (browser-side seek + canvas capture) ─────
+
+  async function extractFrames(fps) {
+    const video = document.getElementById("ct-video");
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    const frames = [];
+    const interval = 1 / fps;
+
+    video.pause();
+
+    for (let t = 0; t < ctDuration && frames.length < 90; t += interval) {
+      video.currentTime = t;
+      await new Promise(resolve => {
+        video.onseeked = () => {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const blob = new Promise(r => canvas.toBlob(r, "image/jpeg"));
+          frames.push({ t: t, blob: blob });
+          resolve();
+        };
+      });
+    }
+    // Resolve all blob promises
+    for (const f of frames) f.blob = await f.blob;
+    return frames;
+  }
+
+  // ── Detection run ─────────────────────────────────────────────
+
+  async function runDetection() {
+    if (ctRunning) return;
+    ctRunning = true;
+
+    const mode = document.getElementById("ct-mode").value;
+    const fps = parseInt(document.getElementById("ct-fps").value);
+    const btn = document.getElementById("ct-run");
+    btn.disabled = true;
+
+    ctResults = [];
+    ctMeta = null;
+    resetAll();
+
+    try {
+      ctStatus("Extracting frames…");
+      const extracted = await extractFrames(fps);
+      if (extracted.length === 0) {
+        ctStatus("No frames extracted");
+        ctRunning = false;
+        btn.disabled = false;
+        return;
+      }
+
+      // Build FormData
+      const form = new FormData();
+      form.append("timestamps", JSON.stringify(extracted.map(f => f.t)));
+      form.append("camera_mode", mode);
+      for (let i = 0; i < extracted.length; i++) {
+        form.append("frames", extracted[i].blob, "f" + i + ".jpg");
+      }
+
+      ctStatus("Running pipeline… (" + extracted.length + " frames)");
+      btn.textContent = "⏳ Running pipeline…";
+
+      const resp = await fetch("/api/config/clip-test", {
+        method: "POST",
+        body: form,
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => "HTTP " + resp.status);
+        ctStatus("Error: " + err.slice(0, 80));
+        ctRunning = false;
+        btn.disabled = false;
+        btn.textContent = "⚙ Run full pipeline";
+        return;
+      }
+
+      // Stream NDJSON
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let seqIdx = 0;
+      const t0 = performance.now();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (!line.trim()) continue;
+
+          let obj;
+          try { obj = JSON.parse(line); } catch (e) { continue; }
+
+          if (obj.type === "meta") {
+            ctMeta = obj;
+            const snap = obj.config_snapshot || {};
+            document.getElementById("ct-hint").textContent =
+              "conf=" + (snap.yolo_confidence_threshold || "?") +
+              "  iou=" + (snap.nms_iou_threshold || "?") +
+              "  gemini_interval=" + (snap.gemini_min_interval_sec || "?") + "s" +
+              "  mode=" + (obj.camera_mode || mode);
+
+          } else if (obj.type === "frame") {
+            ctResults.push(obj);
+            seqIdx++;
+
+            // Update funnel stats every frame
+            updateFunnelStats();
+
+            // Progress bar + ETA
+            const elapsed = (performance.now() - t0) / 1000;
+            const done = ctResults.length;
+            const total = extracted.length;
+            const pct = (done / total) * 100;
+            const eta = elapsed / done * (total - done);
+            document.getElementById("ct-prog-wrap").style.display = "block";
+            document.getElementById("ct-prog-bar").style.width = pct + "%";
+            document.getElementById("ct-prog-lbl").style.display = "block";
+            document.getElementById("ct-prog-lbl").textContent =
+              "Frame " + done + "/" + total + " · " +
+              (obj.pipeline_stage_reached || "?") + " · " +
+              "ETA " + eta.toFixed(0) + "s";
+
+            // Draw canvas
+            const canvas = document.getElementById("ct-canvas");
+            const ctx = canvas.getContext("2d");
+            if (obj.annotated_jpeg_b64) {
+              const img = new Image();
+              img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              img.src = "data:image/jpeg;base64," + obj.annotated_jpeg_b64;
+            } else {
+              const color = getStageColor(obj);
+              ctx.fillStyle = color;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = "#fff";
+              ctx.font = "bold 20px sans-serif";
+              ctx.textAlign = "center";
+              ctx.fillText(obj.pipeline_stage_reached || "?",
+                canvas.width / 2, canvas.height / 2);
+            }
+
+            // Rebuild timeline every 5 frames
+            if (ctResults.length % 5 === 0 || ctResults.length === total) {
+              rebuildTimeline();
+            }
+
+            // Update detail for latest frame
+            ctSelectedFrame = obj;
+            updateFrameDetail(obj);
+
+          } else if (obj.type === "summary") {
+            updateFunnelStats();
+            rebuildFrameList();
+            ctStatus("Done — " + seqIdx + " frames in " +
+              ((performance.now() - t0) / 1000).toFixed(1) + "s");
+
+          } else if (obj.type === "error") {
+            ctStatus("Error: " + (obj.message || "unknown") + " at frame " + obj.frame_index);
+          }
+        }
+      }
+
+    } catch (err) {
+      ctStatus("Error: " + err.message);
+    } finally {
+      ctRunning = false;
+      btn.disabled = false;
+      btn.textContent = "⚙ Run full pipeline";
+    }
+  }
+
+  // ── Timeline ──────────────────────────────────────────────────
+
+  function rebuildTimeline() {
+    const segs = document.getElementById("ct-tl-segs");
+    segs.innerHTML = "";
+    for (const r of ctResults) {
+      const seg = document.createElement("div");
+      const left = ((r.timestamp_sec || 0) / ctDuration) * 100;
+      const w = Math.max(1, (1 / 2 / ctDuration) * 100);
+      seg.style.cssText =
+        "position:absolute;left:" + left + "%;width:" + w + "%;" +
+        "height:100%;background:" + getStageColor(r) + ";cursor:pointer;" +
+        "opacity:0.85;";
+      seg.title = "Frame " + r.frame_index + " · " + (r.pipeline_stage_reached || "?");
+      seg.onclick = function (e) {
+        e.stopPropagation();
+        const video = document.getElementById("ct-video");
+        video.currentTime = r.timestamp_sec || 0;
+        ctSelectedFrame = r;
+        updateFrameDetail(r);
+      };
+      segs.appendChild(seg);
+    }
+  }
+
+  function tlSeek(e) {
+    const tl = document.getElementById("ct-tl");
+    const rect = tl.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    const t = pct * ctDuration;
+    document.getElementById("ct-video").currentTime = t;
+  }
+
+  function buildTimeLabels() {
+    const el = document.getElementById("ct-tl-times");
+    const n = 6;
+    let html = "";
+    for (let i = 0; i < n; i++) {
+      const t = (i / (n - 1)) * ctDuration;
+      html += "<span>" + t.toFixed(1) + "s</span>";
+    }
+    el.innerHTML = html;
+  }
+
+  // ── Frame detail ──────────────────────────────────────────────
+
+  function updateFrameDetail(r) {
+    if (!r) return;
+    const detail = document.getElementById("ct-frame-detail");
+    detail.style.display = "block";
+
+    // Stage badge
+    const stageBadge = document.getElementById("cfd-stage-badge");
+    const stageColor = getStageColor(r);
+    stageBadge.textContent = r.pipeline_stage_reached || "?";
+    stageBadge.style.background = stageColor;
+    stageBadge.style.color = ["#d29922", "#58a6ff"].includes(stageColor) ? "#000" : "#fff";
+
+    // Skip reason
+    document.getElementById("cfd-skip-reason").textContent =
+      r.skip_reason ? "Skip: " + r.skip_reason : "";
+
+    // Threat badge
+    const threatBadge = document.getElementById("cfd-threat-badge");
+    const tl = r.threat_level || "";
+    if (tl) {
+      let threatColor = "#3fb950";
+      if (tl === "MEDIUM") threatColor = "#d29922";
+      else if (["HIGH", "CRITICAL", "EMERGENCY"].includes(tl)) threatColor = "#f85149";
+      threatBadge.textContent = tl;
+      threatBadge.style.background = threatColor;
+      threatBadge.style.color = "#fff";
+      threatBadge.style.display = "inline";
+    } else {
+      threatBadge.style.display = "none";
+    }
+
+    // Alert message
+    const alertEl = document.getElementById("cfd-alert-msg");
+    alertEl.textContent = r.alert_message || "";
+
+    // Stage timings
+    const timings = r.stage_timings_ms || {};
+    const parts = [];
+    if (timings.yolo_ms !== undefined) parts.push("yolo: " + timings.yolo_ms + "ms");
+    if (timings.track_ms !== undefined) parts.push("track: " + timings.track_ms + "ms");
+    if (timings.incident_builder_ms !== undefined) parts.push("incident: " + timings.incident_builder_ms + "ms");
+    if (timings.total_ms !== undefined) parts.push("total: " + timings.total_ms + "ms");
+    document.getElementById("cfd-timings").textContent = parts.join("  ·  ");
+
+    // YOLO detections
+    const yoloEl = document.getElementById("cfd-yolo-list");
+    const dets = r.yolo_detections || [];
+    if (dets.length > 0) {
+      yoloEl.innerHTML = dets.map(function(d) {
+        const pct = Math.round(d.confidence * 100);
+        return '<div style="font-size:.78rem;margin-bottom:2px;">' +
+          '<span style="color:#f0f6fc;">' + d.class_name + '</span> ' +
+          '<span style="color:#58a6ff;">' + pct + '%</span>' +
+          '<div style="height:4px;background:#21262d;border-radius:2px;margin-top:1px;">' +
+          '<div style="height:100%;width:' + pct + '%;background:#58a6ff;' +
+          'border-radius:2px;"></div></div></div>';
+      }).join("");
+    } else {
+      yoloEl.innerHTML = "";
+    }
+
+    // Person IDs
+    const pidEl = document.getElementById("cfd-person-ids");
+    const pids = r.person_ids || [];
+    if (pids.length > 0) {
+      pidEl.innerHTML = pids.map(function(id) {
+        return '<span style="padding:1px 6px;border-radius:3px;font-size:.7rem;' +
+          'background:#30363d;color:#8b949e;">' + id + '</span>';
+      }).join("");
+    } else {
+      pidEl.innerHTML = "";
+    }
+  }
+
+  // ── Frame list ────────────────────────────────────────────────
+
+  function rebuildFrameList() {
+    const el = document.getElementById("ct-frame-list");
+    if (ctResults.length === 0) {
+      el.innerHTML = '<div style="padding:16px;text-align:center;color:#484f58;">' +
+        'Run pipeline to see per-frame results</div>';
+      return;
+    }
+    let html = "";
+    for (const r of ctResults) {
+      const color = getStageColor(r);
+      const tl = r.threat_level || "";
+      html += '<div style="display:flex;gap:6px;align-items:center;' +
+        'padding:5px 10px;border-bottom:1px solid #21262d;cursor:pointer;' +
+        'border-left:3px solid ' + color + ';"' +
+        ' onclick="document.getElementById(\'ct-video\').currentTime=' +
+        (r.timestamp_sec || 0) + ';ctSelectedFrame=ctResults[' +
+        ctResults.indexOf(r) + '];updateFrameDetail(ctSelectedFrame);">' +
+        '<span style="color:#8b949e;font-family:monospace;font-size:.7rem;">' +
+        (r.timestamp_sec || 0).toFixed(2) + 's</span>' +
+        '<span style="color:#484f58;font-family:monospace;font-size:.7rem;">#' +
+        r.frame_index + '</span>' +
+        '<span style="color:#8b949e;font-family:monospace;font-size:.7rem;' +
+        'margin-left:auto;">' +
+        ((r.stage_timings_ms || {}).total_ms || "—") + 'ms</span>' +
+        (tl ? '<span style="padding:1px 5px;border-radius:3px;font-size:.65rem;' +
+          'font-weight:600;background:#30363d;color:#f0f6fc;">' + tl + '</span>' : "") +
+        (r.alert_message ? '<span style="color:#f0883e;font-size:.68rem;' +
+          'max-width:120px;overflow:hidden;white-space:nowrap;' +
+          'text-overflow:ellipsis;">' + r.alert_message.slice(0, 60) + '</span>' : "") +
+        '</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  // ── Funnel stats ──────────────────────────────────────────────
+
+  function updateFunnelStats() {
+    const total = ctResults.length;
+    document.getElementById("st-total").textContent = total;
+
+    const yolo = ctResults.filter(function(r) {
+      return r.pipeline_stage_reached === "yolo_gate";
+    }).length;
+    document.getElementById("st-yolo").textContent = yolo;
+
+    const throttle = ctResults.filter(function(r) {
+      return r.pipeline_stage_reached === "incident_builder";
+    }).length;
+    document.getElementById("st-throttle").textContent = throttle;
+
+    const gemini = ctResults.filter(function(r) {
+      return r.pipeline_stage_reached === "gemini" ||
+             r.pipeline_stage_reached === "complete";
+    }).length;
+    document.getElementById("st-gemini").textContent = gemini;
+
+    const alert = ctResults.filter(function(r) {
+      const tl = (r.threat_level || "").toUpperCase();
+      return tl === "HIGH" || tl === "CRITICAL" || tl === "EMERGENCY";
+    }).length;
+    document.getElementById("st-alert").textContent = alert;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+
+  function resetAll() {
+    ctResults = [];
+    ctMeta = null;
+    ctSelectedFrame = null;
+    document.getElementById("st-total").textContent = "—";
+    document.getElementById("st-yolo").textContent = "—";
+    document.getElementById("st-throttle").textContent = "—";
+    document.getElementById("st-gemini").textContent = "—";
+    document.getElementById("st-alert").textContent = "—";
+    document.getElementById("ct-tl-segs").innerHTML = "";
+    document.getElementById("ct-tl-cur").style.left = "0%";
+    document.getElementById("ct-frame-list").innerHTML =
+      '<div style="padding:16px;text-align:center;color:#484f58;">' +
+      'Run pipeline to see per-frame results</div>';
+    document.getElementById("ct-frame-detail").style.display = "none";
+    document.getElementById("ct-hint").textContent = "";
+    document.getElementById("ct-prog-wrap").style.display = "none";
+    document.getElementById("ct-prog-lbl").style.display = "none";
+
+    // Clear canvas
+    const canvas = document.getElementById("ct-canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function ctStatus(msg) {
+    document.getElementById("ct-status").textContent = msg;
+  }
+
+  function togglePlay() {
+    const video = document.getElementById("ct-video");
+    const btn = document.getElementById("ct-play");
+    if (video.paused) {
+      video.play();
+      btn.textContent = "⏸ Pause";
+    } else {
+      video.pause();
+      btn.textContent = "▶ Play";
+    }
+  }
+
+  // ── Download annotated clip (WebM via MediaRecorder) ────────
+  async function downloadAnnotatedClip() {
+    if (ctResults.length === 0) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = ctMeta ? (document.getElementById("ct-canvas").width || 640) : 640;
+    canvas.height = ctMeta ? (document.getElementById("ct-canvas").height || 480) : 480;
+    const ctx = canvas.getContext("2d");
+
+    // Show annotated frames that have valid base64 data
+    const annotated = ctResults.filter(r => r.annotated_jpeg_b64);
+    if (annotated.length === 0) {
+      ctStatus("No annotated frames to download");
+      return;
+    }
+
+    // Build a silent framerate from timestamps
+    const ts = annotated.map(r => r.timestamp_sec);
+    const minGap = Math.min(...ts.slice(1).map((t, i) => t - ts[i]).filter(g => g > 0));
+    const fps = Math.round(1 / (minGap || 0.5));
+
+    // Use canvas.captureStream + MediaRecorder to produce a WebM
+    const stream = canvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const chunks = [];
+
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (ctFile ? ctFile.name.replace(/\.[^.]+$/, "") : "clip") + "_annotated.webm";
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    recorder.start();
+    for (const r of annotated) {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // Add analysis overlay text
+          const stage = r.pipeline_stage_reached || "";
+          const tl = r.threat_level || "";
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          ctx.fillRect(0, canvas.height - 32, canvas.width, 32);
+          ctx.fillStyle = "#58a6ff";
+          ctx.font = "bold 14px monospace";
+          ctx.textAlign = "left";
+          ctx.fillText(stage + (tl ? " · " + tl : ""), 8, canvas.height - 10);
+          if (r.alert_message) {
+            ctx.fillStyle = "#f0883e";
+            ctx.fillText(r.alert_message.slice(0, 60), canvas.width / 2 + 8, canvas.height - 10);
+          }
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = "data:image/jpeg;base64," + r.annotated_jpeg_b64;
+      });
+      // Wait for the frame duration
+      await new Promise(r => setTimeout(r, 1000 / fps));
+    }
+    recorder.stop();
+    ctStatus("Annotated clip downloaded");
+  }
+</script>
+{% endblock %}

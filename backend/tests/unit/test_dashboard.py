@@ -12,7 +12,8 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
-from backend.dashboard.server import app, get_current_user, require_tier
+from backend.dashboard.server import app
+from backend.dashboard.auth import get_current_user, require_tier
 
 
 # ── Test Client ────────────────────────────────────────────────

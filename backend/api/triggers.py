@@ -22,6 +22,7 @@ from fastapi.responses import Response
 
 from backend.dashboard.auth import get_current_user
 from backend.storage.hybrid_crud import HybridCRUD
+from backend.core.detection.incident_builder import reset_gemini_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ _THREAT_ORDER = {"PENDING": -1, "LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3,
 
 # Session timeout: frames arriving within this window of the last motion
 # are merged into the existing event; otherwise a new event is created.
-SESSION_TIMEOUT_SEC = 45
+SESSION_TIMEOUT_SEC = 180
 
 # Per-camera active session tracking.
 # structure per camera_id:
@@ -51,6 +52,9 @@ SESSION_TIMEOUT_SEC = 45
 # }
 _active_sessions: dict[str, dict] = {}
 
+# Per-camera locks to prevent TOCTOU races on session creation.
+_session_locks: dict[str, asyncio.Lock] = {}
+
 # Handle to the background cleanup task (set by the lifespan in server.py).
 _session_cleanup_task: Optional[asyncio.Task] = None
 
@@ -59,9 +63,10 @@ async def _session_cleanup_loop():
     """Background loop that closes out camera sessions that have gone quiet.
 
     Every 15s it scans `_active_sessions` and any session whose
-    `last_motion_at` is older than `SESSION_TIMEOUT_SEC` is closed:
-    the event is updated with `timestamp_end`, `duration_sec`, and the
-    session's `max_threat`, then the session is dropped from the dict.
+    `last_motion_at` is older than the runtime-configurable timeout
+    (default SESSION_TIMEOUT_SEC) is closed: the event is updated
+    with `timestamp_end`, `duration_sec`, and the session's `max_threat`,
+    then the session is dropped from the dict.
     """
     while True:
         try:
@@ -70,14 +75,23 @@ async def _session_cleanup_loop():
             logger.info("Session cleanup loop cancelled — shutting down")
             return
         try:
+            # Re-read config each loop iteration; fall back to module default on failure
+            _session_timeout = SESSION_TIMEOUT_SEC
+            try:
+                from backend.core.config_store import get_config as _get_config
+                _cfg = await _get_config()
+                _session_timeout = _cfg["values"].get("session_timeout_sec", SESSION_TIMEOUT_SEC)
+            except Exception:
+                logger.warning("Failed to read runtime config in cleanup loop, using default 180s")
             now = datetime.now(timezone.utc)
             timed_out = [
                 cam_id
                 for cam_id, session in _active_sessions.items()
-                if (now - session["last_motion_at"]).total_seconds() > SESSION_TIMEOUT_SEC
+                if (now - session["last_motion_at"]).total_seconds() > _session_timeout
             ]
             for cam_id in timed_out:
                 session = _active_sessions.pop(cam_id, None)
+                reset_gemini_throttle(cam_id)
                 if session is None:
                     continue
                 duration = (now - session["started_at"]).total_seconds()
@@ -221,35 +235,186 @@ async def receive_frame_trigger(
     confidence = trigger_data.confidence
     now = datetime.now(timezone.utc)
 
+    # Per-camera lock: serializes concurrent requests so only one
+    # request can be in the extend-vs-create decision block at a time.
+    lock = _session_locks.setdefault(camera_id, asyncio.Lock())
+    async with lock:
     # ── Session-based deduplication ──
-    # Look up the active session for this camera. If one exists and the
-    # last motion was within SESSION_TIMEOUT_SEC, this frame belongs to
-    # the same incident and we only update the existing event. Otherwise
-    # (no session, or the previous one expired) we start a fresh event.
-    existing = _active_sessions.get(camera_id)
-    session_timed_out = (
-        existing is not None
-        and (now - existing["last_motion_at"]).total_seconds() >= SESSION_TIMEOUT_SEC
-    )
-    if session_timed_out:
-        # Drop the expired session — a new one will be created below.
-        logger.info(
-            "Session for camera %s timed out (event %s, %d frames) — closing",
-            camera_id, existing["event_id"], existing["frame_count"],
+        from backend.core.config_store import get_config as _get_config
+        _cfg = await _get_config()
+        config = _cfg["values"]
+        session_timeout = config.get("session_timeout_sec", SESSION_TIMEOUT_SEC)
+        motion_confidence = config.get("motion_trigger_confidence", 0.5)
+        existing = _active_sessions.get(camera_id)
+        session_timed_out = (
+            existing is not None
+            and (now - existing["last_motion_at"]).total_seconds() >= session_timeout
         )
-        _active_sessions.pop(camera_id, None)
-        existing = None
-
-    try:
-        # ── Existing live session: extend it with this frame ──
-        if existing is not None:
-            session = existing
-            session["last_motion_at"] = now
-            session["frame_count"] += 1
+        if session_timed_out:
             logger.info(
-                "Session EXTEND camera %s → event %s (frame %d, max_threat=%s)",
-                camera_id, session["event_id"], session["frame_count"], session["max_threat"],
+                "Session for camera %s timed out (event %s, %d frames) — closing",
+                camera_id, existing["event_id"], existing["frame_count"],
             )
+            _active_sessions.pop(camera_id, None)
+            reset_gemini_throttle(camera_id)
+            existing = None
+
+        try:
+            # ── Existing live session: extend it with this frame ──
+            if existing is not None:
+                session = existing
+                session["last_motion_at"] = now
+                session["frame_count"] += 1
+                logger.info(
+                    "Session EXTEND camera %s → event %s (frame %d, max_threat=%s)",
+                    camera_id, session["event_id"], session["frame_count"], session["max_threat"],
+                )
+
+                pipeline_result = None
+                if jpeg_bytes is not None:
+                    try:
+                        # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
+                        pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
+                        if pipeline_v2 is not None:
+                            pipeline_result = await pipeline_v2.process_frame(
+                                camera_id=camera_id,
+                                user_id=user_id,
+                                location_id=location_id,
+                                mode=mode,
+                                jpeg_bytes=jpeg_bytes,
+                                camera_profile=trigger_data.camera_profile
+                                               if hasattr(trigger_data, "camera_profile")
+                                               else None,
+                            )
+                            if not pipeline_result.change_detected:
+                                if pipeline_result.skip_reason == "yolo_gate":
+                                    _active_sessions.pop(camera_id, None)
+                                    reset_gemini_throttle(camera_id)
+                                    return {"status": "no_change", "camera_id": camera_id}
+                                # Throttled (skip_reason == "throttled" or None):
+                                # keep session alive — just return updated status
+                                logger.debug(
+                                    "NO_CHANGE (throttled) for camera %s — preserving session",
+                                    camera_id,
+                                )
+                                session["last_motion_at"] = now
+                                return {
+                                    "event_id": session["event_id"],
+                                    "status": "session_updated",
+                                    "frame_count": session["frame_count"],
+                                    "max_threat": session["max_threat"],
+                                }
+                        else:
+                            # Fallback to existing pipeline if v2 unavailable
+                            pipeline_result = await pipeline_manager.process_trigger(
+                                camera_id=camera_id,
+                                user_id=user_id,
+                                location_id=location_id,
+                                mode=mode,
+                                jpeg_bytes=jpeg_bytes,
+                                motion_result={
+                                    "pixel_diff": confidence * 100,
+                                    "diff_category": "trigger",
+                                },
+                            )
+
+                        # Step 3 — NO_CHANGE gating: skip event update entirely
+                        if not pipeline_result.change_detected:
+                            if pipeline_result.skip_reason == "yolo_gate":
+                                logger.debug(
+                                    "NO_CHANGE (yolo_gate) for camera %s — destroying session",
+                                    camera_id,
+                                )
+                                reset_gemini_throttle(camera_id)
+                                return {"status": "no_change", "camera_id": camera_id}
+                            # Throttled (skip_reason == "throttled" or None from old pipeline):
+                            # keep session alive — just return updated status
+                            logger.debug(
+                                "NO_CHANGE (throttled) for camera %s — preserving session",
+                                camera_id,
+                            )
+                            session["last_motion_at"] = now
+                            return {
+                                "event_id": session["event_id"],
+                                "status": "session_updated",
+                                "frame_count": session["frame_count"],
+                                "max_threat": session["max_threat"],
+                            }
+
+                        new_threat = pipeline_result.threat_level or "LOW"
+                        if _THREAT_ORDER.get(new_threat, 0) > _THREAT_ORDER.get(session["max_threat"], 0):
+                            logger.info(
+                                "Session ESCALATION camera %s event %s: %s → %s",
+                                camera_id, session["event_id"], session["max_threat"], new_threat,
+                            )
+                            session["max_threat"] = new_threat
+                            try:
+                                await crud.update_event(
+                                    event_id=session["event_id"],
+                                    threat_level=pipeline_result.threat_level,
+                                    alert_message=pipeline_result.alert_message,
+                                    person_ids=pipeline_result.person_ids,
+                                    frame_count=session["frame_count"],
+                                )
+                            except Exception as update_err:
+                                logger.error(
+                                    "Failed to update event %s with escalated threat: %s",
+                                    session["event_id"], update_err,
+                                )
+                        else:
+                            # Same-or-lower threat: still keep frame_count fresh
+                            # so the dashboard sees accurate progress on live cards.
+                            try:
+                                await crud.update_event(
+                                    event_id=session["event_id"],
+                                    frame_count=session["frame_count"],
+                                )
+                            except Exception as update_err:
+                                logger.error(
+                                    "Failed to bump frame_count on event %s: %s",
+                                    session["event_id"], update_err,
+                                )
+                    except Exception as pipe_err:
+                        logger.error(
+                            "Pipeline failed during session extend for camera %s: %s",
+                            camera_id, pipe_err, exc_info=True,
+                        )
+                elif jpeg_bytes is None:
+                    logger.warning("jpeg_bytes is None — skipping session extend analysis")
+
+                return {
+                    "event_id": session["event_id"],
+                    "status": "session_updated",
+                    "frame_count": session["frame_count"],
+                    "max_threat": session["max_threat"],
+                    "pipeline": {
+                        "threat_level": pipeline_result.threat_level,
+                    } if pipeline_result is not None else None,
+                }
+
+            # ── No live session: create a new event + start a session ──
+            details = {
+                "image_base64": image_base64,
+                "timestamp": timestamp,
+                "confidence": confidence,
+                "threat_level": "PENDING",
+            }
+            event = await crud.create_event(
+                user_id=user_id,
+                camera_id=camera_id,
+                event_type="motion",
+                details=details,
+            )
+            logger.info("Event %s created — starting new session for camera %s", event.event_id, camera_id)
+
+            session = {
+                "event_id": event.event_id,
+                "started_at": now,
+                "last_motion_at": now,
+                "frame_count": 1,
+                "max_threat": "PENDING",
+            }
+            _active_sessions[camera_id] = session
 
             pipeline_result = None
             if jpeg_bytes is not None:
@@ -268,8 +433,19 @@ async def receive_frame_trigger(
                                            else None,
                         )
                         if not pipeline_result.change_detected:
-                            _active_sessions.pop(camera_id, None)
-                            return {"status": "no_change", "camera_id": camera_id}
+                            if pipeline_result.skip_reason == "yolo_gate":
+                                _active_sessions.pop(camera_id, None)
+                                reset_gemini_throttle(camera_id)
+                                return {"status": "no_change", "camera_id": camera_id}
+                            # Throttled or skipped by incident builder —
+                            # session is real, keep it alive
+                            return {
+                                "event_id": session["event_id"],
+                                "status": "session_updated",
+                                "frame_count": session["frame_count"],
+                                "max_threat": session["max_threat"],
+                                "pipeline": None,
+                            }
                     else:
                         # Fallback to existing pipeline if v2 unavailable
                         pipeline_result = await pipeline_manager.process_trigger(
@@ -280,176 +456,65 @@ async def receive_frame_trigger(
                             jpeg_bytes=jpeg_bytes,
                             motion_result={
                                 "pixel_diff": confidence * 100,
-                                "diff_category": "trigger",
+                                "diff_category": "trigger" if confidence > motion_confidence else "skip",
                             },
                         )
 
-                    # Step 3 — NO_CHANGE gating: skip event update entirely
+                    # NO_CHANGE gating: skip DB write entirely
                     if not pipeline_result.change_detected:
                         logger.debug(
-                            "NO_CHANGE response for camera %s — skipping event update",
+                            "NO_CHANGE response for camera %s (new session) — skipping",
                             camera_id,
                         )
+                        # Clean up the partial session
+                        _active_sessions.pop(camera_id, None)
+                        reset_gemini_throttle(camera_id)
                         return {"status": "no_change", "camera_id": camera_id}
 
                     new_threat = pipeline_result.threat_level or "LOW"
-                    if _THREAT_ORDER.get(new_threat, 0) > _THREAT_ORDER.get(session["max_threat"], 0):
-                        logger.info(
-                            "Session ESCALATION camera %s event %s: %s → %s",
-                            camera_id, session["event_id"], session["max_threat"], new_threat,
+                    session["max_threat"] = new_threat
+                    try:
+                        await crud.update_event(
+                            event_id=event.event_id,
+                            threat_level=pipeline_result.threat_level,
+                            alert_message=pipeline_result.alert_message,
+                            person_ids=pipeline_result.person_ids,
+                            frame_count=session["frame_count"],
                         )
-                        session["max_threat"] = new_threat
-                        try:
-                            await crud.update_event(
-                                event_id=session["event_id"],
-                                threat_level=pipeline_result.threat_level,
-                                alert_message=pipeline_result.alert_message,
-                                person_ids=pipeline_result.person_ids,
-                                frame_count=session["frame_count"],
-                            )
-                        except Exception as update_err:
-                            logger.error(
-                                "Failed to update event %s with escalated threat: %s",
-                                session["event_id"], update_err,
-                            )
-                    else:
-                        # Same-or-lower threat: still keep frame_count fresh
-                        # so the dashboard sees accurate progress on live cards.
-                        try:
-                            await crud.update_event(
-                                event_id=session["event_id"],
-                                frame_count=session["frame_count"],
-                            )
-                        except Exception as update_err:
-                            logger.error(
-                                "Failed to bump frame_count on event %s: %s",
-                                session["event_id"], update_err,
-                            )
+                    except Exception as update_err:
+                        logger.error("Failed to update event %s with pipeline result: %s", event.event_id, update_err)
                 except Exception as pipe_err:
                     logger.error(
-                        "Pipeline failed during session extend for camera %s: %s",
+                        "Pipeline failed during session create for camera %s: %s",
                         camera_id, pipe_err, exc_info=True,
                     )
             elif jpeg_bytes is None:
-                logger.warning("jpeg_bytes is None — skipping session extend analysis")
+                logger.warning("jpeg_bytes is None — skipping pipeline (image_base64 was empty or failed to decode)")
 
-            return {
-                "event_id": session["event_id"],
-                "status": "session_updated",
+            response: dict = {
+                "event_id": event.event_id,
+                "status": "session_created",
                 "frame_count": session["frame_count"],
                 "max_threat": session["max_threat"],
             }
+            if pipeline_result is not None:
+                response["pipeline"] = {
+                    "incident_id": pipeline_result.incident_id,
+                    "threat_level": pipeline_result.threat_level,
+                    "alert_message": pipeline_result.alert_message,
+                    "alert_sent": pipeline_result.alert_sent,
+                    "person_ids": pipeline_result.person_ids,
+                }
+            return response
 
-        # ── No live session: create a new event + start a session ──
-        details = {
-            "image_base64": image_base64,
-            "timestamp": timestamp,
-            "confidence": confidence,
-            "threat_level": "PENDING",
-        }
-        event = await crud.create_event(
-            user_id=user_id,
-            camera_id=camera_id,
-            event_type="motion",
-            details=details,
-        )
-        logger.info("Event %s created — starting new session for camera %s", event.event_id, camera_id)
-
-        session = {
-            "event_id": event.event_id,
-            "started_at": now,
-            "last_motion_at": now,
-            "frame_count": 1,
-            "max_threat": "PENDING",
-        }
-        _active_sessions[camera_id] = session
-
-        pipeline_result = None
-        if jpeg_bytes is not None:
-            try:
-                # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
-                pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
-                if pipeline_v2 is not None:
-                    pipeline_result = await pipeline_v2.process_frame(
-                        camera_id=camera_id,
-                        user_id=user_id,
-                        location_id=location_id,
-                        mode=mode,
-                        jpeg_bytes=jpeg_bytes,
-                        camera_profile=trigger_data.camera_profile
-                                       if hasattr(trigger_data, "camera_profile")
-                                       else None,
-                    )
-                    if not pipeline_result.change_detected:
-                        _active_sessions.pop(camera_id, None)
-                        return {"status": "no_change", "camera_id": camera_id}
-                else:
-                    # Fallback to existing pipeline if v2 unavailable
-                    pipeline_result = await pipeline_manager.process_trigger(
-                        camera_id=camera_id,
-                        user_id=user_id,
-                        location_id=location_id,
-                        mode=mode,
-                        jpeg_bytes=jpeg_bytes,
-                        motion_result={
-                            "pixel_diff": confidence * 100,
-                            "diff_category": "trigger" if confidence > 0.5 else "skip",
-                        },
-                    )
-
-                # NO_CHANGE gating: skip DB write entirely
-                if not pipeline_result.change_detected:
-                    logger.debug(
-                        "NO_CHANGE response for camera %s (new session) — skipping",
-                        camera_id,
-                    )
-                    # Clean up the partial session
-                    _active_sessions.pop(camera_id, None)
-                    return {"status": "no_change", "camera_id": camera_id}
-
-                new_threat = pipeline_result.threat_level or "LOW"
-                session["max_threat"] = new_threat
-                try:
-                    await crud.update_event(
-                        event_id=event.event_id,
-                        threat_level=pipeline_result.threat_level,
-                        alert_message=pipeline_result.alert_message,
-                        person_ids=pipeline_result.person_ids,
-                        frame_count=session["frame_count"],
-                    )
-                except Exception as update_err:
-                    logger.error("Failed to update event %s with pipeline result: %s", event.event_id, update_err)
-            except Exception as pipe_err:
-                logger.error(
-                    "Pipeline failed during session create for camera %s: %s",
-                    camera_id, pipe_err, exc_info=True,
-                )
-        elif jpeg_bytes is None:
-            logger.warning("jpeg_bytes is None — skipping pipeline (image_base64 was empty or failed to decode)")
-
-        response: dict = {
-            "event_id": event.event_id,
-            "status": "session_created",
-            "frame_count": session["frame_count"],
-            "max_threat": session["max_threat"],
-        }
-        if pipeline_result is not None:
-            response["pipeline"] = {
-                "incident_id": pipeline_result.incident_id,
-                "threat_level": pipeline_result.threat_level,
-                "alert_message": pipeline_result.alert_message,
-                "alert_sent": pipeline_result.alert_sent,
-                "person_ids": pipeline_result.person_ids,
-            }
-        return response
-
-    except Exception as e:
-        # If we partially created a session, drop it so the next frame
-        # can start fresh instead of being silently absorbed.
-        _active_sessions.pop(camera_id, None)
-        raise HTTPException(status_code=500, detail={
-            "error": str(e), "code": "STORAGE_ERROR",
-        })
+        except Exception as e:
+            # If we partially created a session, drop it so the next frame
+            # can start fresh instead of being silently absorbed.
+            _active_sessions.pop(camera_id, None)
+            reset_gemini_throttle(camera_id)
+            raise HTTPException(status_code=500, detail={
+                "error": str(e), "code": "STORAGE_ERROR",
+            })
 
 
 @router.post("/audio",
@@ -569,7 +634,7 @@ async def receive_audio_trigger(
         200: {"description": "JPEG image bytes returned successfully", "content": {"image/jpeg": {}}},
         401: {"description": "Missing or invalid Firebase token"},
         404: {"description": "Event not found or no image data for this event"},
-        500: {"description": "Failed to decode stored image data"},
+        500: {"description": "Storage or pipeline processing error"},
     },
 )
 async def get_event_image(

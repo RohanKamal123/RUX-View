@@ -14,9 +14,13 @@ Flow:
 Falls back to existing pipeline if YOLO unavailable.
 """
 
+import base64
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Optional
 
+from backend.core.config_store import get_config as _get_config
 from backend.core.detection.yolo_detector import detect, DetectionResult
 from backend.core.detection.botsort_tracker import update_tracks
 from backend.core.detection.incident_builder import (
@@ -53,6 +57,7 @@ class PipelineV2:
         mode: str,
         jpeg_bytes: bytes,
         camera_profile: Optional[dict] = None,
+        dry_run: bool = False,
     ) -> PipelineResult:
         """Process a single frame through the full v2 pipeline.
 
@@ -60,16 +65,39 @@ class PipelineV2:
             camera_id: Camera identifier.
             user_id: Authenticated user ID.
             location_id: Location grouping ID.
-            mode: Camera mode (indoor/outdoor/parking/shop/mixed).
+            mode: Camera mode (indoor/outdoor/parking/shop).
             jpeg_bytes: Raw JPEG frame bytes from client agent.
             camera_profile: Optional camera config dict for Gemini context.
+            dry_run: If True, real DB writes, Redis writes, and alert
+                     sends are suppressed.  Gemini calls still happen.
+                     Use synthetic ``camera_id`` (e.g.
+                     ``f"clip-analysis-{clip_id}"``) to isolate
+                     per-camera state during the run.
 
         Returns:
             PipelineResult from the underlying CameraPipeline.
             Returns no_change result immediately if YOLO gate blocks.
         """
+        # ── Stage timings for clip analysis ──────────────────────
+        stage_timings = {}
+
+        # ── Stage 0: Load runtime config once per frame ──────────
+        _cfg = await _get_config()
+        config = _cfg["values"]
+
         # ── Stage 1: YOLO detection gate ─────────────────────────
-        detection_result: DetectionResult = detect(jpeg_bytes, annotate=True)
+        t0 = time.perf_counter()
+        detection_result: DetectionResult = detect(
+            jpeg_bytes, annotate=True, config=config,
+        )
+        stage_timings["yolo_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+        # Encode annotated JPEG (with bounding boxes) for clip-test output
+        annotated_b64 = (
+            base64.b64encode(detection_result.annotated_jpeg).decode("ascii")
+            if detection_result.annotated_jpeg
+            else None
+        )
 
         if not detection_result.has_relevant_objects:
             logger.debug(
@@ -80,6 +108,9 @@ class PipelineV2:
                 incident_id=None,
                 threat_level="LOW",
                 change_detected=False,
+                skip_reason="yolo_gate",
+                annotated_jpeg_b64=annotated_b64,
+                stage_timings_ms=stage_timings,
             )
 
         logger.debug(
@@ -89,14 +120,20 @@ class PipelineV2:
         )
 
         # ── Stage 2: BoT-SORT tracking ───────────────────────────
+        t0 = time.perf_counter()
         tracking_result = await update_tracks(
             camera_id=camera_id,
             detections=detection_result.detections,
             redis_client=self.redis,
+            config=config,
+            dry_run=dry_run,
         )
+        stage_timings["track_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         # ── Stage 3: Incident builder decision ───────────────────
-        decision = should_call_gemini(camera_id, tracking_result)
+        t0 = time.perf_counter()
+        decision = should_call_gemini(camera_id, tracking_result, config=config)
+        stage_timings["incident_builder_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         if not decision.should_call_gemini:
             logger.debug(
@@ -108,6 +145,9 @@ class PipelineV2:
                 incident_id=None,
                 threat_level="LOW",
                 change_detected=False,
+                skip_reason="throttled",
+                annotated_jpeg_b64=annotated_b64,
+                stage_timings_ms=stage_timings,
             )
 
         logger.info(
@@ -117,6 +157,7 @@ class PipelineV2:
         )
 
         # ── Stage 4: Existing pipeline (Gemini + Re-ID + alerts) ─
+        t0 = time.perf_counter()
         # Use annotated frame (with bounding boxes) for richer Gemini context
         frame_to_send = (
             detection_result.annotated_jpeg
@@ -143,6 +184,8 @@ class PipelineV2:
             jpeg_bytes=frame_to_send,
             motion_result=motion_result,
             camera_profile=camera_profile,
+            timestamp=datetime.now(timezone.utc),
+            yolo_detections=detection_result.detections,
         )
 
         result = await self.pipeline_manager.process_trigger(
@@ -153,11 +196,18 @@ class PipelineV2:
             jpeg_bytes=frame_to_send,
             motion_result=motion_result,
             camera_profile=camera_profile,
+            config=config,
+            dry_run=dry_run,
         )
 
         # If Gemini returned NO_CHANGE, record it so
         # incident_builder extends the skip window
         if result and not result.change_detected:
             record_no_change(camera_id)
+
+        stage_timings["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        result.stage_timings_ms = stage_timings
+        # Pass annotated JPEG through to the result
+        result.annotated_jpeg_b64 = annotated_b64
 
         return result

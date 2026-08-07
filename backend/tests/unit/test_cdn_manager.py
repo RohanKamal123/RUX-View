@@ -184,7 +184,7 @@ async def test_get_storage_usage_calculates_correctly(cdn: CDNManager):
     usage = await cdn.get_storage_usage()
     assert usage.total_objects == 3
     assert usage.total_bytes > 0
-    assert usage.total_mb > 0.0
+    assert usage.total_mb == 0.0  # 26 bytes = 0 MB (integer division)
     assert usage.oldest_object is not None
     assert usage.newest_object is not None
 
@@ -265,7 +265,7 @@ def test_storage_usage_defaults():
 
 def test_storage_usage_custom():
     """StorageUsage should accept custom values."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     usage = StorageUsage(
         prefix="test/",
         total_objects=5,

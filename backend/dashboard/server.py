@@ -343,7 +343,11 @@ from backend.api.triggers import router as triggers_router
 from backend.api.queries import router as queries_router
 from backend.api.analytics import router as analytics_router
 from backend.api.payments import router as payments_router
+from backend.api.config import router as config_router
 from backend.api.telegram_test import router as telegram_test_router
+from backend.api.clip_analysis import router as clip_analysis_router
+from backend.api.clip_test import router as clip_test_router
+
 
 app.include_router(dashboard_router)
 app.include_router(payments_router)
@@ -352,6 +356,10 @@ app.include_router(users_router, prefix="/api")
 app.include_router(triggers_router, prefix="/api")
 app.include_router(queries_router, prefix="/api")
 app.include_router(analytics_router)
+app.include_router(config_router)
 app.include_router(telegram_test_router, prefix="/api")
+app.include_router(clip_analysis_router)
+app.include_router(clip_test_router)
+
 
 

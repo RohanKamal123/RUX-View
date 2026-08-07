@@ -40,9 +40,18 @@ class SightingRecord:
 class RepeatSightingTracker:
     """Track repeat sightings and escalate threat level."""
 
-    def __init__(self):
-        """Initialize tracker with in-memory state."""
+    def __init__(self, config: Optional[dict] = None):
+        """Initialize tracker with in-memory state.
+
+        Args:
+            config: Optional runtime config dict (e.g. from config_store).
+                    ``repeat_reset_timeout_hours``, ``night_start_hour``,
+                    and ``night_end_hour`` are read from it.
+        """
         self._records: dict[str, SightingRecord] = {}  # key: f"{person_uid}:{user_id}"
+        self._reset_timeout_hours = config.get("repeat_reset_timeout_hours", RESET_TIMEOUT_HOURS) if config else RESET_TIMEOUT_HOURS
+        self._night_start_hour = config.get("night_start_hour", NIGHT_START_HOUR) if config else NIGHT_START_HOUR
+        self._night_end_hour = config.get("night_end_hour", NIGHT_END_HOUR) if config else NIGHT_END_HOUR
 
     def _key(self, person_uid: str, user_id: str) -> str:
         return f"{person_uid}:{user_id}"
@@ -157,6 +166,12 @@ class RepeatSightingTracker:
 
         return "none"
 
+    def set_config(self, config: dict) -> None:
+        """Update thresholds from runtime config (called per-pipeline-frame)."""
+        self._reset_timeout_hours = config.get("repeat_reset_timeout_hours", self._reset_timeout_hours)
+        self._night_start_hour = config.get("night_start_hour", self._night_start_hour)
+        self._night_end_hour = config.get("night_end_hour", self._night_end_hour)
+
     async def should_reset(self, person_uid: str, user_id: str,
                             last_seen: Optional[datetime],
                             is_night: bool) -> bool:
@@ -186,7 +201,7 @@ class RepeatSightingTracker:
         # Check if 6 hours have passed since last sighting
         now = datetime.now(timezone.utc)
         elapsed = (now - last_seen).total_seconds()
-        return elapsed >= RESET_TIMEOUT_HOURS * 3600
+        return elapsed >= self._reset_timeout_hours * 3600
 
     def is_night_hours(self, timestamp: Optional[datetime] = None) -> bool:
         """Check if the given time falls within night hours (10pm-6am).
@@ -200,7 +215,7 @@ class RepeatSightingTracker:
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
         hour = timestamp.hour
-        return hour >= NIGHT_START_HOUR or hour < NIGHT_END_HOUR
+        return hour >= self._night_start_hour or hour < self._night_end_hour
 
     @property
     def total_tracked(self) -> int:

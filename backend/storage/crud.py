@@ -179,6 +179,9 @@ async def find_similar_persons(
     Returns:
         List of dicts with person data and similarity score.
     """
+    if db is None:
+        logger.error("find_similar_persons called with db=None — skipping")
+        return []
     stmt = text("""
         SELECT id, person_uid, user_id, location_id, first_seen, last_seen,
                sighting_count, threat_flags, is_staff, user_label,

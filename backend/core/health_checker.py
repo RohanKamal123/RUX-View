@@ -4,7 +4,7 @@ Provides unified health checking across database, AI APIs, storage,
 and external services with status aggregation and latency tracking.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import asyncio
 import logging
@@ -48,7 +48,7 @@ class HealthChecker:
         self._ai_client = ai_client
         self._groq_client = groq_client
         self._telegram_client = telegram_client
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(timezone.utc)
 
     async def check_all(self) -> dict:
         """Check health of all subsystems.
@@ -88,7 +88,7 @@ class HealthChecker:
         return {
             "status": overall_status,
             "checks": checks,
-            "uptime_seconds": (datetime.utcnow() - self._start_time).total_seconds(),
+            "uptime_seconds": (datetime.now(timezone.utc) - self._start_time).total_seconds(),
             "active_cameras": 0,  # Populated from DB in production
             "total_errors_24h": 0,  # Populated from error handler in production
         }

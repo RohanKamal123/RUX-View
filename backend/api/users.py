@@ -95,19 +95,25 @@ async def update_user_profile(
     """Update the authenticated user's profile.
 
     Args:
-        updates: Dict of fields to update (name, telegram_chat_id).
+        updates: Dict of fields to update (display_name, name, telegram_chat_id).
         user: Authenticated user dict from Firebase.
 
     Returns:
-        Dict with status.
+        Dict with status and updated profile fields.
     """
     user_id = user.get("uid", "anonymous")
+
+    # Normalise display_name → name for CRUD layer
+    if "display_name" in updates and "name" not in updates:
+        updates["name"] = updates.pop("display_name")
+
     try:
         profile = await crud.update_user(user_id, updates)
         return {
             "status": "updated",
             "user_id": user_id,
             "name": profile.name,
+            "telegram_chat_id": profile.telegram_chat_id,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail={

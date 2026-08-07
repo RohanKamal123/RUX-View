@@ -38,18 +38,30 @@ class MotionDetector:
     with configurable sensitivity and minimum area thresholds.
     """
 
-    def __init__(self, threshold: float = 0.05, min_area: int = 8000):
+    def __init__(self, threshold: float = 0.05, min_area: int = 8000,
+                 config: Optional[dict] = None):
         """Initialize MotionDetector.
 
         Args:
             threshold: Motion detection sensitivity (0.0 to 1.0).
                        Lower values detect smaller motions.
             min_area: Minimum contour area in pixels to consider as motion.
+            config: Optional runtime config dict (e.g. from config_store).
+                    ``motion_min_area``, ``motion_threshold``,
+                    ``motion_history``, ``motion_var_threshold``, and
+                    ``fg_mask_threshold`` are read from it if provided.
         """
+        if config is not None:
+            min_area = config.get("motion_min_area", min_area)
+            threshold = config.get("motion_threshold", threshold)
         self.threshold = threshold
         self.min_area = min_area
+        self._history = config.get("motion_history", 500) if config else 500
+        self._var_threshold = config.get("motion_var_threshold", 56) if config else 56
+        self._fg_mask_threshold = config.get("fg_mask_threshold", 200) if config else 200
         self._bg_subtractor = cv2.createBackgroundSubtractorMOG2(
-            history=500, varThreshold=56, detectShadows=False
+            history=self._history, varThreshold=self._var_threshold,
+            detectShadows=False,
         )
         self._roi: Optional[Tuple[int, int, int, int]] = None
         self._last_frame: Optional[np.ndarray] = None
@@ -82,7 +94,9 @@ class MotionDetector:
         fg_mask = self._bg_subtractor.apply(roi_frame)
 
         # Apply threshold to remove noise
-        _, fg_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+        _, fg_mask = cv2.threshold(
+            fg_mask, self._fg_mask_threshold, 255, cv2.THRESH_BINARY,
+        )
 
         # Apply morphological operations to clean up
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -143,7 +157,8 @@ class MotionDetector:
         to re-learn the background.
         """
         self._bg_subtractor = cv2.createBackgroundSubtractorMOG2(
-            history=500, varThreshold=56, detectShadows=False
+            history=self._history, varThreshold=self._var_threshold,
+            detectShadows=False,
         )
         logger.info("Background model reset")
 
@@ -157,5 +172,7 @@ class MotionDetector:
             return None
 
         fg_mask = self._bg_subtractor.apply(self._last_frame)
-        _, fg_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+        _, fg_mask = cv2.threshold(
+            fg_mask, self._fg_mask_threshold, 255, cv2.THRESH_BINARY,
+        )
         return fg_mask

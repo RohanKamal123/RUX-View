@@ -59,6 +59,8 @@ class PipelineManager:
         motion_result: Optional[dict] = None,
         yamnet_result: Optional[dict] = None,
         camera_profile: Optional[dict] = None,
+        config: Optional[dict] = None,
+        dry_run: bool = False,
     ) -> PipelineResult:
         """Process a trigger through the pipeline for the given camera.
 
@@ -75,11 +77,13 @@ class PipelineManager:
             yamnet_result: YAMNet audio classification result (optional).
             camera_profile: Optional dict with name, location, after_hours_enabled,
                            loiter_threshold_sec for camera context in prompts.
+            dry_run: If True, DB writes, Redis writes, and alert sends are suppressed.
+                     Gemini calls still happen (real behavior visible).
 
         Returns:
             PipelineResult with incident outcome.
         """
-        print(f'PIPELINE_MANAGER: process_trigger called for camera {camera_id}')
+        logger.debug("PipelineManager.process_trigger called for camera %s (dry_run=%s)", camera_id, dry_run)
         # Lazy-create pipeline for this camera
         if camera_id not in self._pipelines:
             self._pipelines[camera_id] = CameraPipeline(
@@ -93,7 +97,7 @@ class PipelineManager:
 
         pipeline = self._pipelines[camera_id]
 
-        # Build pipeline context
+        # Build pipeline context — attach dry_run flag so sub-modules can read it
         ctx = PipelineContext(
             camera_id=camera_id,
             user_id=user_id,
@@ -105,11 +109,40 @@ class PipelineManager:
             motion_result=motion_result,
             yamnet_result=yamnet_result,
             camera_profile=camera_profile,
+            config=config,
+            dry_run=dry_run,
         )
 
         # Run the pipeline
         result = await pipeline.process_trigger(ctx)
         return result
+
+    def cleanup_synthetic_camera(self, camera_id: str) -> None:
+        """Remove a synthetic (clip-analysis) pipeline instance.
+
+        # REQUIRED CALLER PATTERN (see clip_analysis.py once built):
+        #
+        #     synthetic_id = f"clip-analysis-{clip_id}"
+        #     try:
+        #         for frame in frames:
+        #             result = await pv2.process_frame(
+        #                 camera_id=synthetic_id, dry_run=True, ...)
+        #     finally:
+        #         cleanup_synthetic_camera(synthetic_id)
+        #         self.pipeline_manager.cleanup_synthetic_camera(synthetic_id)
+        #
+        # This MUST run even if the clip loop crashes partway
+        # through (bad frame, OOM, timeout) or synthetic camera
+        # state leaks indefinitely across a week of repeated
+        # clip-analysis runs.
+
+        Deletes the CameraPipeline so its per-instance state
+        (incident tracker, repeat sighting records, ghost entries)
+        is garbage collected.  Safe to call even if camera_id
+        doesn't exist.
+        """
+        self._pipelines.pop(camera_id, None)
+        logger.debug("Cleaned up synthetic pipeline for camera %s", camera_id)
 
     async def shutdown(self) -> None:
         """Gracefully shut down all pipelines."""

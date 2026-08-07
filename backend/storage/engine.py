@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from backend.config import settings
 from backend.storage.database import Base
@@ -57,9 +57,12 @@ if _db_url:
 _engine = create_async_engine(
     _db_url,
     echo=(settings.log_level == "DEBUG"),
-    poolclass=NullPool,
+    poolclass=AsyncAdaptedQueuePool,
+    pool_size=3,
+    max_overflow=2,
+    pool_timeout=15,
     pool_pre_ping=True,
-    connect_args=_connect_args,
+    connect_args={**_connect_args, "ssl": "require", "timeout": 15},
 )
 
 # ── Session Factory ─────────────────────────────────────────────────────────────

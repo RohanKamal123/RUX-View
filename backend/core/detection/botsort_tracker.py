@@ -47,17 +47,24 @@ async def update_tracks(
     camera_id: str,
     detections,  # list[Detection] from yolo_detector
     redis_client,
+    config: Optional[dict] = None,
+    dry_run: bool = False,
 ) -> TrackingResult:
     """Update track state for a camera based on new detections.
 
     Loads existing tracks from Redis, matches detections to tracks
     by IoU overlap, creates new tracks for unmatched detections,
-    and persists updated state back to Redis.
+    and persists updated state back to Redis (unless dry_run=True).
 
     Args:
         camera_id: Unique camera identifier.
         detections: List of Detection objects from yolo_detector.
         redis_client: Upstash async Redis client instance.
+        config: Optional runtime config dict (e.g. from config_store).
+                ``track_match_iou`` is read from it.
+        dry_run: If True, suppress Redis writes (track state is not
+                 persisted).  Track matching and result building still
+                 happen in memory.
 
     Returns:
         TrackingResult with current tracks, new tracks, and summary.
@@ -78,13 +85,16 @@ async def update_tracks(
         except Exception:
             pass
 
+    match_iou = config.get("track_match_iou", 0.25) if config else 0.25
+    lost_threshold = config.get("lost_track_threshold_sec", 30) if config else 30
+    track_ttl = config.get("track_ttl_sec", TRACK_TTL_SECONDS) if config else TRACK_TTL_SECONDS
     now = time.time()
     matched_track_ids = set()
     result_tracks = []
     new_tracks = []
 
     for det in detections:
-        matched_id = _match_detection_to_track(det, existing_tracks)
+        matched_id = _match_detection_to_track(det, existing_tracks, match_iou=match_iou)
 
         if matched_id:
             # Update existing track
@@ -129,24 +139,28 @@ async def update_tracks(
     lost_tracks = [
         tid for tid in existing_tracks
         if tid not in matched_track_ids
-        and (now - existing_tracks[tid].get("last_seen", now)) > 30
+        and (now - existing_tracks[tid].get("last_seen", now)) > lost_threshold
     ]
     for tid in lost_tracks:
         existing_tracks.pop(tid, None)
 
-    # Persist updated state to Redis
-    try:
-        if existing_tracks:
-            pipe_data = {
-                tid: json.dumps(state)
-                for tid, state in existing_tracks.items()
-            }
-            await redis_client.hset(redis_key, mapping=pipe_data)
-            await redis_client.expire(redis_key, TRACK_TTL_SECONDS)
-        else:
-            await redis_client.delete(redis_key)
-    except Exception as e:
-        logger.warning("Redis write failed for %s: %s", camera_id, e)
+    # Persist updated state to Redis (skip on dry_run)
+    if not dry_run:
+        try:
+            if existing_tracks:
+                pipe_data = {
+                    tid: json.dumps(state)
+                    for tid, state in existing_tracks.items()
+                }
+                for field, value in pipe_data.items():
+                    await redis_client.hset(redis_key, field, value)
+                await redis_client.expire(redis_key, track_ttl)
+            else:
+                await redis_client.delete(redis_key)
+        except Exception as e:
+            logger.warning("Redis write failed for %s: %s", camera_id, e)
+    else:
+        logger.debug("Dry run: skipped Redis persist for %s (would write %d tracks)", camera_id, len(existing_tracks))
 
     # Build human-readable track summary for Gemini context
     summary_parts = []
@@ -169,10 +183,24 @@ async def update_tracks(
     )
 
 
-def _match_detection_to_track(detection, existing_tracks: dict) -> Optional[str]:
-    """Match a detection to an existing track by IoU overlap."""
+def _match_detection_to_track(
+    detection,
+    existing_tracks: dict,
+    match_iou: float = 0.25,
+) -> Optional[str]:
+    """Match a detection to an existing track by IoU overlap.
+
+    Args:
+        detection: A Detection instance.
+        existing_tracks: Dict of track_id → track state.
+        match_iou: Minimum IoU threshold (default 0.25, overridden
+                   by runtime config).
+
+    Returns:
+        Matched track ID or None.
+    """
     best_id = None
-    best_iou = 0.25  # Minimum IoU threshold
+    best_iou = match_iou  # Minimum IoU threshold
 
     for tid, state in existing_tracks.items():
         iou = _bbox_iou(detection.bbox, state.get("bbox_last", []))

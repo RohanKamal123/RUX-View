@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Optional
 
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
@@ -37,6 +38,16 @@ _last_gemini_call: float = 0.0
 _gemini_lock = asyncio.Lock()
 _GEMINI_MIN_INTERVAL = 8.0  # seconds
 
+# ── Max output tokens for all Gemini calls ─────────────────────
+# Prevents unbounded 8000+ token responses on unusual frames.
+# 2048 provides safe headroom for multi-person structured JSON.
+GENERATION_CONFIG = {"max_output_tokens": 2048, "temperature": 0.1}
+
+
+def _make_gen_config(max_tokens: int = 2048) -> dict:
+    """Build generation config with configurable max_output_tokens."""
+    return {"max_output_tokens": max_tokens, "temperature": 0.1}
+
 
 def _init_vertex():
     """Initialize Vertex AI SDK once (singleton)."""
@@ -52,31 +63,36 @@ def _init_vertex():
         _vertex_initialized = True
 
 
-async def _rate_limit() -> bool:
-    """Global rate limiter — max 1 Gemini call per 5 seconds.
+async def _rate_limit(min_interval: float | None = None) -> bool:
+    """Global rate limiter — max 1 Gemini call per *min_interval* seconds.
+
+    Args:
+        min_interval: Minimum seconds between calls.  Defaults to
+                      ``_GEMINI_MIN_INTERVAL`` (8.0) if not provided.
 
     If the minimum interval has elapsed, returns True immediately.
-    Otherwise waits up to 5s for the lock, then checks again.
+    Otherwise waits up to *min_interval* for the lock, then checks again.
     If still too soon, returns False — caller should skip/fallback.
 
     Returns:
         True if caller may proceed, False if rate-limited.
     """
     global _last_gemini_call
+    interval = min_interval if min_interval is not None else _GEMINI_MIN_INTERVAL
     async with _gemini_lock:
         now = time.monotonic()
         elapsed = now - _last_gemini_call
-        if elapsed >= _GEMINI_MIN_INTERVAL:
+        if elapsed >= interval:
             _last_gemini_call = now
             return True
         # Wait for the remaining time, then retry once
-        wait_time = _GEMINI_MIN_INTERVAL - elapsed
+        wait_time = interval - elapsed
         logger.info("Rate limit: waiting %.1fs before Gemini call", wait_time)
         await asyncio.sleep(wait_time)
         # Retry check after waiting
         now = time.monotonic()
         elapsed = now - _last_gemini_call
-        if elapsed >= _GEMINI_MIN_INTERVAL:
+        if elapsed >= interval:
             _last_gemini_call = now
             return True
         # Still rate-limited — skip
@@ -91,6 +107,37 @@ def _get_model():
         _init_vertex()
         _model = GenerativeModel("gemini-2.5-flash")
     return _model
+
+
+async def _generate(contents, max_tokens: int = 2048) -> str:
+    """All Gemini generate calls go through this wrapper.
+
+    Applies generation config with *max_tokens* (default 2048)
+    and temperature=0.1 to every call.
+    Checks finish_reason to catch truncation before accessing .text.
+
+    Args:
+        contents: Input for the model.
+        max_tokens: Maximum output tokens (from config or default).
+    """
+    model = _get_model()
+    response = await model.generate_content_async(
+        contents,
+        generation_config=_make_gen_config(max_tokens=max_tokens),
+    )
+    # Check for truncation before accessing .text
+    finish_reason = response.candidates[0].finish_reason
+    if finish_reason is not None and finish_reason.name == "MAX_TOKENS":
+        token_count = response.usage_metadata.total_token_count if response.usage_metadata else "unknown"
+        logger.warning(
+            "Gemini response truncated by MAX_TOKENS — "
+            "increase max_output_tokens or reduce prompt size. "
+            f"Tokens used: {token_count}"
+        )
+        raise ValueError(
+            f"Response truncated: MAX_TOKENS (tokens used: {token_count})"
+        )
+    return response.text
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -299,17 +346,16 @@ async def analyse_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> dic
             logger.warning("Rate limited: skipping analyse_audio")
             return dict(AUDIO_ANALYSIS_FALLBACK)
 
-        model = _get_model()
-        response = await model.generate_content_async(
+        text = await _generate(
             [AUDIO_ANALYSIS_PROMPT, Part.from_data(data=audio_bytes, mime_type=mime_type)]
         )
         # Use parse_gemini_response for change_detected check
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             # Silent audio — return no-threat fallback
             return dict(AUDIO_ANALYSIS_FALLBACK)
 
-        result = _parse_json(response.text, {})
+        result = _parse_json(text, {})
 
         # Validate required keys
         required_keys = {"transcript", "language", "threat_detected", "threat_level", "threat_types", "description", "confidence"}
@@ -361,63 +407,78 @@ def _validate_structured_result(result: dict) -> bool:
     return True
 
 
-async def analyse_frame_structured(jpeg_bytes: bytes) -> dict:
+async def analyse_frame_structured(jpeg_bytes: bytes,
+                                   config: Optional[dict] = None) -> dict:
     """Analyse a CCTV frame and return structured JSON output.
 
     Forces Gemini to return a controlled-vocabulary structured result.
-    - If confidence < 0.6, returns empty dict (silent discard).
+    - If confidence below *gemini_confidence_floor*, returns empty dict (silent discard).
+    - Rate-limiter interval uses *gemini_min_interval_sec*.
+    - Max output tokens uses *gemini_max_output_tokens*.
     - If schema validation fails, retries once, then returns safe default.
     - If Gemini returns invalid JSON, retries once, then returns safe default.
+
+    Args:
+        jpeg_bytes: JPEG frame bytes.
+        config: Optional runtime config dict.  Read by the pipeline
+                (one fetch per frame in PipelineV2).  If provided,
+                ``gemini_confidence_floor``, ``gemini_min_interval_sec``,
+                and ``gemini_max_output_tokens`` are read from it.
 
     Returns:
         dict with keys: event_type, threat_level, confidence, description,
                         action_required, subject_count, subject_description,
                         change_detected, objects_detected, action
-        OR empty dict {} if confidence < 0.6 (silent discard).
+        OR empty dict {} if confidence < floor (silent discard).
         OR {"change_detected": False} if scene is unchanged.
     """
+    confidence_floor = config.get("gemini_confidence_floor", 0.6) if config else 0.6
+    min_interval = config.get("gemini_min_interval_sec", _GEMINI_MIN_INTERVAL) if config else _GEMINI_MIN_INTERVAL
+    max_tokens = config.get("gemini_max_output_tokens", 2048) if config else 2048
     try:
         # ── Global rate limit check ────────────────────────────
-        if not await _rate_limit():
+        if not await _rate_limit(min_interval=min_interval):
             logger.warning("Rate limited: skipping analyse_frame_structured")
             return dict(STRUCTURED_ANALYSIS_FALLBACK)
 
-        model = _get_model()
-
         # First attempt
-        response = await model.generate_content_async(
-            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
+        text = await _generate(
+            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")],
+            max_tokens=max_tokens,
         )
 
         # Check for change_detected short-circuit
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             logger.debug("Frame unchanged — skipping structured analysis")
             return {"change_detected": False}
 
-        result = _parse_json(response.text, {})
+        result = _parse_json(text, {})
 
         # Validate schema
         if result and _validate_structured_result(result):
             # Check confidence threshold
-            if result.get("confidence", 0.0) < 0.6:
-                logger.debug("Frame analysis discarded: confidence %.2f < 0.6", result.get("confidence", 0.0))
+            if result.get("confidence", 0.0) < confidence_floor:
+                logger.debug("Frame analysis discarded: confidence %.2f < %.2f",
+                             result.get("confidence", 0.0), confidence_floor)
                 return {}  # Silent discard
             return result
 
         # First attempt failed validation — retry once
         logger.warning("Structured analysis failed validation, retrying once...")
-        if not await _rate_limit():
+        if not await _rate_limit(min_interval=min_interval):
             logger.warning("Rate limited: skipping retry for analyse_frame_structured")
             return dict(STRUCTURED_ANALYSIS_FALLBACK)
-        response = await model.generate_content_async(
-            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
+        text = await _generate(
+            [STRUCTURED_ANALYSIS_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")],
+            max_tokens=max_tokens,
         )
-        result = _parse_json(response.text, {})
+        result = _parse_json(text, {})
 
         if result and _validate_structured_result(result):
-            if result.get("confidence", 0.0) < 0.6:
-                logger.debug("Frame analysis discarded (retry): confidence %.2f < 0.6", result.get("confidence", 0.0))
+            if result.get("confidence", 0.0) < confidence_floor:
+                logger.debug("Frame analysis discarded (retry): confidence %.2f < %.2f",
+                             result.get("confidence", 0.0), confidence_floor)
                 return {}
             return result
 
@@ -691,19 +752,18 @@ async def analyse_frame_with_second_pass(jpeg_bytes: bytes) -> dict:
         vision_summary = "\n".join(summary_parts)
 
         # Layer 2: Text analysis → final verdict
-        model = _get_model()
         prompt = SECOND_PASS_PROMPT.format(vision_summary=vision_summary)
-        response = await model.generate_content_async(prompt)
+        text = await _generate(prompt)
 
         # Check for change_detected from Layer 2
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             fallback.update(vision_result)
             fallback["change_detected"] = False
             fallback["alert_message"] = "No activity detected"
             return fallback
 
-        verdict = _parse_json(response.text, {})
+        verdict = _parse_json(text, {})
 
         # Merge vision result with verdict
         result = dict(vision_result)
@@ -727,7 +787,8 @@ async def analyse_frame_with_second_pass(jpeg_bytes: bytes) -> dict:
 # ── Vision Analysis (fast — used during incidents) ─────────────
 
 
-async def analyse_frame(jpeg_bytes: bytes) -> dict:
+async def analyse_frame(jpeg_bytes: bytes,
+                        config: Optional[dict] = None) -> dict:
     """Analyse a CCTV frame quickly for incident processing.
 
     Returns:
@@ -741,24 +802,26 @@ async def analyse_frame(jpeg_bytes: bytes) -> dict:
         "gates_visible": {},
         "change_detected": True,
     }
+    min_interval = config.get("gemini_min_interval_sec", _GEMINI_MIN_INTERVAL) if config else _GEMINI_MIN_INTERVAL
+    max_tokens = config.get("gemini_max_output_tokens", 2048) if config else 2048
     try:
         # ── Global rate limit check ────────────────────────────
-        if not await _rate_limit():
+        if not await _rate_limit(min_interval=min_interval):
             logger.warning("Rate limited: skipping analyse_frame")
             return fallback
 
-        model = _get_model()
-        response = await model.generate_content_async(
-            [LIVE_VISION_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
+        text = await _generate(
+            [LIVE_VISION_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")],
+            max_tokens=max_tokens,
         )
 
         # Check for change_detected short-circuit
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             logger.debug("Frame unchanged — no activity")
             return {"change_detected": False}
 
-        result = _parse_json(response.text, fallback)
+        result = _parse_json(text, fallback)
         # Ensure all required keys exist
         for key in fallback:
             result.setdefault(key, fallback[key])
@@ -773,7 +836,8 @@ async def analyse_frame(jpeg_bytes: bytes) -> dict:
 # ── Vision Analysis (detailed — for NL queries) ────────────────
 
 
-async def analyse_frame_detailed(jpeg_bytes: bytes) -> dict:
+async def analyse_frame_detailed(jpeg_bytes: bytes,
+                                 config: Optional[dict] = None) -> dict:
     """Analyse a CCTV frame in extreme detail for natural language queries.
 
     Returns:
@@ -792,19 +856,20 @@ async def analyse_frame_detailed(jpeg_bytes: bytes) -> dict:
         "anomalies": [],
         "change_detected": True,
     }
+    max_tokens = config.get("gemini_max_output_tokens", 2048) if config else 2048
     try:
-        model = _get_model()
-        response = await model.generate_content_async(
-            [QUERY_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
+        text = await _generate(
+            [QUERY_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")],
+            max_tokens=max_tokens,
         )
 
         # Check for change_detected short-circuit
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             logger.debug("Frame unchanged — no activity (detailed)")
             return {"change_detected": False}
 
-        result = _parse_json(response.text, fallback)
+        result = _parse_json(text, fallback)
         for key in fallback:
             result.setdefault(key, fallback[key])
         result["change_detected"] = True
@@ -832,18 +897,17 @@ async def analyse_shop_entry(jpeg_bytes: bytes) -> dict:
         "change_detected": True,
     }
     try:
-        model = _get_model()
-        response = await model.generate_content_async(
+        text = await _generate(
             [SHOP_ENTRY_PROMPT, Part.from_data(data=jpeg_bytes, mime_type="image/jpeg")]
         )
 
         # Check for change_detected short-circuit
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             logger.debug("Frame unchanged — no shop entry")
             return {"change_detected": False}
 
-        result = _parse_json(response.text, fallback)
+        result = _parse_json(text, fallback)
         for key in fallback:
             result.setdefault(key, fallback[key])
         result["change_detected"] = True
@@ -856,7 +920,8 @@ async def analyse_shop_entry(jpeg_bytes: bytes) -> dict:
 # ── Incident Decision ──────────────────────────────────────────
 
 
-async def make_incident_decision(timeline: list, context: dict) -> dict:
+async def make_incident_decision(timeline: list, context: dict,
+                                 config: Optional[dict] = None) -> dict:
     """Make a security decision based on incident timeline and context.
 
     Args:
@@ -877,9 +942,11 @@ async def make_incident_decision(timeline: list, context: dict) -> dict:
         "follow_up": "",
         "change_detected": True,
     }
+    min_interval = config.get("gemini_min_interval_sec", _GEMINI_MIN_INTERVAL) if config else _GEMINI_MIN_INTERVAL
+    max_tokens = config.get("gemini_max_output_tokens", 2048) if config else 2048
     try:
         # ── Global rate limit check ────────────────────────────
-        if not await _rate_limit():
+        if not await _rate_limit(min_interval=min_interval):
             logger.warning("Rate limited: skipping make_incident_decision")
             return fallback
 
@@ -904,16 +971,15 @@ async def make_incident_decision(timeline: list, context: dict) -> dict:
         else:
             prompt = prompt_body
 
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
+        text = await _generate(prompt, max_tokens=max_tokens)
 
         # Check for change_detected short-circuit
-        parsed = parse_gemini_response(response.text)
+        parsed = parse_gemini_response(text)
         if not parsed.get("change_detected", True):
             logger.debug("Incident decision: no change detected")
             return {"change_detected": False}
 
-        result = _parse_json(response.text, fallback)
+        result = _parse_json(text, fallback)
         for key in fallback:
             result.setdefault(key, fallback[key])
         return result
@@ -937,9 +1003,8 @@ async def answer_query(question: str, events: list, analyses: list) -> str:
             events=json.dumps(events, indent=2, default=str),
             analyses=json.dumps(analyses, indent=2, default=str),
         )
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
-        return response.text.strip() if response.text else "No answer available."
+        text = await _generate(prompt)
+        return text.strip() if text else "No answer available."
     except Exception as exc:
         logger.error("answer_query failed: %s", exc, exc_info=True)
         return f"Unable to answer query due to an error: {exc}"
@@ -959,9 +1024,8 @@ async def answer_scene_state(question: str, world_state: dict) -> str:
             question=question,
             world_state=json.dumps(world_state, indent=2, default=str),
         )
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
-        return response.text.strip() if response.text else "No answer available."
+        text = await _generate(prompt)
+        return text.strip() if text else "No answer available."
     except Exception as exc:
         logger.error("answer_scene_state failed: %s", exc, exc_info=True)
         return f"Unable to answer scene query due to an error: {exc}"
@@ -986,9 +1050,8 @@ async def generate_daily_digest(events: dict, tier: str = "free") -> str:
             events=json.dumps(events, indent=2, default=str),
             word_limit=word_limit,
         )
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
-        text = response.text.strip() if response.text else "No digest available."
+        text = await _generate(prompt)
+        text = text.strip() if text else "No digest available."
         if tier == "free":
             text = _truncate_text(text, max_words=200)
         return text
@@ -1013,9 +1076,8 @@ async def generate_weekly_digest(events: dict, tier: str = "free") -> str:
             events=json.dumps(events, indent=2, default=str),
             word_limit=word_limit,
         )
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
-        text = response.text.strip() if response.text else "No digest available."
+        text = await _generate(prompt)
+        text = text.strip() if text else "No digest available."
         if tier == "free":
             text = _truncate_text(text, max_words=200)
         return text
@@ -1051,9 +1113,8 @@ async def reid_tiebreaker(desc_a: str, desc_b: str, time_gap: int) -> dict:
             desc_b=desc_b,
             time_gap=time_gap,
         )
-        model = _get_model()
-        response = await model.generate_content_async(prompt)
-        result = _parse_json(response.text, fallback)
+        text = await _generate(prompt)
+        result = _parse_json(text, fallback)
         for key in fallback:
             result.setdefault(key, fallback[key])
         return result

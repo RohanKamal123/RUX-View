@@ -370,6 +370,22 @@ async def billing_page(
 # ── Admin Panel ─────────────────────────────────────────────────
 
 
+@router.get("/dashboard/tuning", response_class=HTMLResponse, include_in_schema=False)
+async def tuning_page(
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Tuning page for runtime config (auth required)."""
+    return templates.TemplateResponse(
+        "tuning.html",
+        {
+            "request": request,
+            "user": user,
+            "active_page": "tuning",
+        },
+    )
+
+
 @router.get("/dashboard/admin", response_class=HTMLResponse, include_in_schema=False)
 async def admin_panel(
     request: Request,

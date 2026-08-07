@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select, func, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.storage.database import (
     Event,
@@ -125,10 +126,15 @@ class PostgresCRUD:
         thumbnail_url: Optional[str] = None,
         timestamp_end: Optional[datetime] = None,
         duration_sec: Optional[float] = None,
+        session: Optional[AsyncSession] = None,
     ) -> Optional[Event]:
-        """Update an event's fields."""
-        async with create_session() as session:
-            result = await session.execute(select(Event).where(Event.id == event_id))
+        """Update an event's fields.
+
+        Args:
+            session: An optional existing session to reuse. If None, opens a new one.
+        """
+        async def _update(s: AsyncSession) -> Optional[Event]:
+            result = await s.execute(select(Event).where(Event.id == event_id))
             event = result.scalar_one_or_none()
             if event is None:
                 return None
@@ -148,9 +154,14 @@ class PostgresCRUD:
                 event.timestamp_end = timestamp_end
             if duration_sec is not None:
                 event.duration_sec = duration_sec
-            await session.flush()
-            await session.refresh(event)
+            await s.flush()
+            await s.refresh(event)
             return event
+
+        if session is not None:
+            return await _update(session)
+        async with create_session() as s:
+            return await _update(s)
 
     async def get_user_events(
         self,
@@ -371,6 +382,7 @@ class PostgresCRUD:
         phone: Optional[str] = None,
         tier: str = "free",
         subscription_active: bool = False,
+        telegram_chat_id: Optional[str] = None,
     ) -> User:
         """Create or update a user record."""
         async with create_session() as session:
@@ -384,6 +396,8 @@ class PostgresCRUD:
                     user.email = email
                 if phone is not None:
                     user.phone = phone
+                if telegram_chat_id is not None:
+                    user.telegram_chat_id = telegram_chat_id
                 user.tier = tier
                 user.subscription_active = subscription_active
             else:
@@ -394,6 +408,7 @@ class PostgresCRUD:
                     phone=phone,
                     tier=tier,
                     subscription_active=subscription_active,
+                    telegram_chat_id=telegram_chat_id,
                 )
                 session.add(user)
 

@@ -1,0 +1,82 @@
+[
+  {
+    "trigger": 1,
+    "latency_ms": 20938,
+    "status": "session_created",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 2,
+    "latency_ms": 905,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 3,
+    "latency_ms": 858,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 4,
+    "latency_ms": 827,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 5,
+    "latency_ms": 827,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 6,
+    "latency_ms": 827,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 7,
+    "latency_ms": 812,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 8,
+    "latency_ms": 812,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 9,
+    "latency_ms": 827,
+    "status": "session_updated",
+    "event_id": "EVT_002D2CD13A35",
+    "threat_level": "\u2014",
+    "http_status": 200
+  },
+  {
+    "trigger": 10,
+    "latency_ms": 750,
+    "status": "no_change",
+    "event_id": null,
+    "threat_level": "\u2014",
+    "http_status": 200
+  }
+]

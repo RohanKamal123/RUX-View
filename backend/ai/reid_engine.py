@@ -142,8 +142,9 @@ class ReIDEngine:
             return None
 
     async def identify(self, db, frame: np.ndarray,
-                        person_result: dict, location_id: str,
-                        user_id: str) -> tuple[str, float]:
+                         person_result: dict, location_id: str,
+                         user_id: str,
+                         config: Optional[dict] = None) -> tuple[str, float]:
         """Identify a person from a frame + AI analysis result.
 
         Args:
@@ -152,12 +153,27 @@ class ReIDEngine:
             person_result: Dict from ai_client.analyse_frame() for this person.
             location_id: Location UUID.
             user_id: User UUID.
+            config: Optional runtime config dict (e.g. from config_store).
+                    ``reid_exact_match_threshold`` is read from it.
 
         Returns:
             (person_uid, confidence) — existing or new PERSON_XXX.
         """
+        exact_match_threshold = (
+            config.get("reid_exact_match_threshold", 0.72)
+            if config else EXACT_MATCH_THRESHOLD
+        )
+        uncertain_min = config.get("reid_uncertain_min", UNCERTAIN_MIN) if config else UNCERTAIN_MIN
+        uncertain_max = config.get("reid_uncertain_max", UNCERTAIN_MAX) if config else UNCERTAIN_MAX
+        find_similar_limit = config.get("reid_find_similar_limit", 5) if config else 5
+        pgvector_threshold = config.get("reid_pgvector_threshold", 0.7) if config else 0.7
+        tiebreaker_boost = config.get("reid_tiebreaker_boost", 0.9) if config else 0.9
         # Extract embedding from person crop
-        bbox = person_result.get("bbox", [0, 0, 0, 0])
+        bbox = (
+            person_result.get("bbox_normalized") or
+            person_result.get("bbox") or
+            [0, 0, 0, 0]
+        )
         frame_h, frame_w = frame.shape[:2]
         crop = await self.crop_person(frame, bbox, frame_w, frame_h)
 
@@ -175,7 +191,10 @@ class ReIDEngine:
             return (person_uid, 1.0)
 
         # Tier 2 & 3: Find similar via pgvector
-        similar = await self.find_similar(db, embedding_list, location_id, limit=5)
+        similar = await self.find_similar(
+            db, embedding_list, location_id,
+            limit=find_similar_limit, threshold=pgvector_threshold,
+        )
 
         if not similar:
             # No matches — new person
@@ -188,11 +207,11 @@ class ReIDEngine:
         best_person_uid = best_match.get("person_uid")
 
         # Tier 2: Auto-match above threshold
-        if best_score >= EXACT_MATCH_THRESHOLD:
+        if best_score >= exact_match_threshold:
             return (best_person_uid, best_score)
 
         # Tier 3: Uncertainty zone — use AI tiebreaker
-        if best_score >= UNCERTAIN_MIN:
+        if best_score >= uncertain_min:
             from backend.ai import reid_tiebreaker
 
             sig_a = self.appearance_signature(person_result)
@@ -200,7 +219,7 @@ class ReIDEngine:
 
             tiebreaker_result = await reid_tiebreaker(sig_a, sig_b, best_score)
             if tiebreaker_result.get("match", False):
-                return (best_person_uid, (best_score + 0.9) / 2)  # Boost confidence
+                return (best_person_uid, (best_score + tiebreaker_boost) / 2)  # Boost confidence
             return (best_person_uid, best_score)
 
         # Below uncertainty threshold — new person
@@ -209,7 +228,8 @@ class ReIDEngine:
         return (new_uid, 0.0)
 
     async def find_similar(self, db, embedding: list[float],
-                            location_id: str, limit: int = 5) -> list[dict]:
+                            location_id: str, limit: int = 5,
+                            threshold: float = 0.7) -> list[dict]:
         """Find similar persons using pgvector cosine similarity.
 
         Delegates to crud.find_similar_persons().
@@ -226,7 +246,7 @@ class ReIDEngine:
         try:
             from backend.storage.crud import find_similar_persons
             results = await find_similar_persons(
-                db, embedding, location_id, limit=limit
+                db, embedding, location_id, limit=limit, threshold=threshold,
             )
             return results or []
         except ImportError:

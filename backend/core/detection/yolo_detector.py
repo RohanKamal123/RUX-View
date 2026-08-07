@@ -225,16 +225,28 @@ def _postprocess(
     return detections
 
 
-def detect(jpeg_bytes: bytes, annotate: bool = True) -> DetectionResult:
+def detect(jpeg_bytes: bytes, annotate: bool = True,
+           config: Optional[dict] = None) -> DetectionResult:
     """Run YOLO nano ONNX inference on a JPEG frame.
 
     Args:
         jpeg_bytes: Raw JPEG image bytes from camera.
         annotate: If True, draw bounding boxes for Gemini context.
+        config: Optional runtime config dict (e.g. from config_store).
+                If provided, ``yolo_confidence_threshold``,
+                ``nms_iou_threshold``, and ``yolo_jpeg_quality``
+                are read from it.
 
     Returns:
         DetectionResult. has_relevant_objects=False skips Gemini.
     """
+    global CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD
+    jpeg_quality = 85
+    if config is not None:
+        CONFIDENCE_THRESHOLD = config.get("yolo_confidence_threshold", 0.35)
+        NMS_IOU_THRESHOLD = config.get("nms_iou_threshold", 0.45)
+        jpeg_quality = config.get("yolo_jpeg_quality", 85)
+
     session = _get_session()
     if session is None:
         # Fail open — let frame through to Gemini
@@ -280,7 +292,7 @@ def detect(jpeg_bytes: bytes, annotate: bool = True) -> DetectionResult:
         # Annotate frame
         annotated_bytes = None
         if annotate:
-            annotated_bytes = _annotate_frame(image, detections)
+            annotated_bytes = _annotate_frame(image, detections, jpeg_quality=jpeg_quality)
 
         return DetectionResult(
             has_relevant_objects=True,
@@ -295,8 +307,18 @@ def detect(jpeg_bytes: bytes, annotate: bool = True) -> DetectionResult:
         return DetectionResult(has_relevant_objects=True)
 
 
-def _annotate_frame(image: Image.Image, detections: list) -> bytes:
-    """Draw bounding boxes and labels on frame."""
+def _annotate_frame(image: Image.Image, detections: list,
+                    jpeg_quality: int = 85) -> bytes:
+    """Draw bounding boxes and labels on frame.
+
+    Args:
+        image: PIL Image to annotate.
+        detections: List of Detection objects.
+        jpeg_quality: JPEG compression quality (1-100, from config).
+
+    Returns:
+        JPEG bytes of annotated frame.
+    """
     try:
         from PIL import ImageDraw
         draw = ImageDraw.Draw(image)
@@ -313,9 +335,9 @@ def _annotate_frame(image: Image.Image, detections: list) -> bytes:
             )
             draw.text((x1 + 2, y1 - 14), label, fill="black")
         buf = io.BytesIO()
-        image.save(buf, format="JPEG", quality=85)
+        image.save(buf, format="JPEG", quality=jpeg_quality)
         return buf.getvalue()
     except Exception:
         buf = io.BytesIO()
-        image.save(buf, format="JPEG", quality=85)
+        image.save(buf, format="JPEG", quality=jpeg_quality)
         return buf.getvalue()

@@ -185,7 +185,8 @@ class QueryEngine:
         prompt = INTENT_PROMPT.replace("{question}", question)
 
         try:
-            response = await self.ai_client.generate_content_async(prompt)
+            response = await self.ai_client.generate_content_async(
+                prompt, generation_config={"max_output_tokens": 2048, "temperature": 0.1})
             text = response.text.strip()
 
             # Extract JSON from response
@@ -358,7 +359,8 @@ class QueryEngine:
         )
 
         try:
-            response = await self.ai_client.generate_content_async(prompt)
+            response = await self.ai_client.generate_content_async(
+                prompt, generation_config={"max_output_tokens": 2048, "temperature": 0.1})
             return response.text.strip()
         except Exception as exc:
             logger.error("Answer synthesis failed: %s", exc, exc_info=True)

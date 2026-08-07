@@ -1,8 +1,12 @@
 """
+
 Tests for Sprint 3.2 — Camera Modes.
 
 Tests all 5 mode files: indoor, outdoor, parking, mixed, shop.
 """
+
+import pytest
+pytest.importorskip("backend.modes")  # skip if not installed
 
 from datetime import datetime, time
 

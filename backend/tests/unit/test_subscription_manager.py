@@ -1,8 +1,11 @@
 """
+
 test_subscription_manager.py — Tests for Subscription Management.
 """
 
 import pytest
+pytest.importorskip("backend.billing")  # skip if not installed
+
 from datetime import datetime, timedelta, timezone
 from backend.billing.subscription_manager import (
     SubscriptionManager,

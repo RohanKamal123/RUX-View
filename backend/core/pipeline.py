@@ -31,6 +31,9 @@ class PipelineContext:
     motion_result: Optional[dict] = None
     yamnet_result: Optional[dict] = None
     camera_profile: Optional[dict] = None  # {name, location, after_hours_enabled, loiter_threshold_sec}
+    yolo_detections: list = field(default_factory=list)  # Real YOLO Detection bboxes for Re-ID
+    config: Optional[dict] = None  # Runtime tunable config (from config_store)
+    dry_run: bool = False  # If True, suppress DB writes, Redis writes, and alert sends
 
 
 @dataclass
@@ -42,6 +45,12 @@ class PipelineResult:
     person_ids: list = field(default_factory=list)
     change_detected: bool = True
     error: Optional[str] = None
+    skip_reason: Optional[str] = None
+    dry_run: bool = False  # Mirrors the input dry_run flag for downstream readers
+    suppressed_alerts: list = field(default_factory=list)  # Alerts that WOULD have been sent (dry_run only)
+    annotated_jpeg_b64: Optional[str] = None  # Base64-encoded JPEG with YOLO bounding boxes drawn
+    suppressed_db_events: list = field(default_factory=list)  # Events that WOULD have been written
+    stage_timings_ms: dict = field(default_factory=dict)  # Per-stage wall-clock timing
 
 
 class CameraPipeline:
@@ -81,9 +90,12 @@ class CameraPipeline:
         # Last structured analysis result (for fallback message fix)
         self._last_structured_result: dict = {}
 
-        # Per-incident Gemini throttle: max 1 vision call per 10 seconds
+        # Per-incident Gemini throttle: DISABLED (set to 0).
+        # The global 8s floor (_GEMINI_MIN_INTERVAL in ai_client.py) and
+        # per-camera 60s ceiling (GEMINI_INTERVAL_SEC in incident_builder.py)
+        # are sufficient; this middle layer added nothing but extra dead time.
         self._last_vision_time: Optional[datetime] = None
-        _VISION_THROTTLE_SECONDS = 15
+        self._vision_throttle_seconds = 0
 
     def _init_tracker(self):
         """Initialize incident tracker."""
@@ -147,22 +159,29 @@ class CameraPipeline:
 
     # ── Frame Quality Gate ──────────────────────────────────────
 
-    def _check_frame_quality(self, jpeg_bytes: bytes) -> bool:
+    def _check_frame_quality(self, jpeg_bytes: bytes,
+                              config: Optional[dict] = None) -> bool:
         """Check frame quality before sending to Gemini.
 
-        Three checks:
-        1. Mean brightness < 30 → too dark, skip
-        2. Laplacian variance < 50 → too blurry, skip
-        3. Motion area < 2% of frame → too little motion, skip
+        All thresholds read from *config* with DEFAULTS fallbacks:
+        1. Mean brightness below *brightness_gate_min* → too dark, skip
+        2. Laplacian variance below *blur_gate_min* → too blurry, skip
+        3. Motion area below *motion_percent_gate* → too little motion, skip
 
         All checks logged at DEBUG level.
 
         Args:
             jpeg_bytes: JPEG frame bytes.
+            config: Optional runtime config dict (e.g. from config_store).
 
         Returns:
             True if frame passes all quality checks, False if it should be skipped.
         """
+        brightness_min = config.get("brightness_gate_min", 30) if config else 30
+        blur_min = config.get("blur_gate_min", 50) if config else 50
+        px_diff = config.get("pixel_diff_threshold", 25) if config else 25
+        motion_pct = config.get("motion_percent_gate", 2.0) if config else 2.0
+
         try:
             import cv2
             import numpy as np
@@ -178,34 +197,34 @@ class CameraPipeline:
             # Check 1: Mean brightness
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             mean_brightness = cv2.mean(gray)[0]
-            if mean_brightness < 30:
+            if mean_brightness < brightness_min:
                 logger.debug(
-                    "Frame quality: too dark (brightness=%.2f < 30) — skipping",
-                    mean_brightness,
+                    "Frame quality: too dark (brightness=%.2f < %d) — skipping",
+                    mean_brightness, brightness_min,
                 )
                 return False
 
             # Check 2: Blur (Laplacian variance)
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            if laplacian_var < 50:
+            if laplacian_var < blur_min:
                 logger.debug(
-                    "Frame quality: too blurry (laplacian_var=%.2f < 50) — skipping",
-                    laplacian_var,
+                    "Frame quality: too blurry (laplacian_var=%.2f < %d) — skipping",
+                    laplacian_var, blur_min,
                 )
                 return False
 
             # Check 3: Motion area (compare with previous frame)
             if self._last_frame_gray is not None:
                 diff = cv2.absdiff(self._last_frame_gray, gray)
-                _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+                _, thresh = cv2.threshold(diff, px_diff, 255, cv2.THRESH_BINARY)
                 motion_pixels = cv2.countNonZero(thresh)
                 total_pixels = gray.shape[0] * gray.shape[1]
                 motion_percent = (motion_pixels / total_pixels) * 100.0
 
-                if motion_percent < 2.0:
+                if motion_percent < motion_pct:
                     logger.debug(
-                        "Frame quality: motion too small (%.2f%% < 2%%) — skipping",
-                        motion_percent,
+                        "Frame quality: motion too small (%.2f%% < %.1f%%) — skipping",
+                        motion_percent, motion_pct,
                     )
                     return False
 
@@ -260,6 +279,7 @@ class CameraPipeline:
                 return PipelineResult(
                     incident_id=self._incident_tracker.incident_id,
                     threat_level="LOW",
+                    dry_run=ctx.dry_run,
                 )
 
             # Step 2: If GEMMA_CALL, run vision analysis
@@ -274,6 +294,7 @@ class CameraPipeline:
                         incident_id=self._incident_tracker.incident_id,
                         threat_level="LOW",
                         change_detected=False,
+                        dry_run=ctx.dry_run,
                     )
 
                 # Step 3: If persons found, run Re-ID
@@ -307,6 +328,7 @@ class CameraPipeline:
                 incident_id=self._incident_tracker.incident_id,
                 threat_level="TRACKING",
                 person_ids=[p.get("person_uid", "") for p in person_results],
+                dry_run=ctx.dry_run,
             )
 
         except Exception as exc:
@@ -317,6 +339,7 @@ class CameraPipeline:
             return PipelineResult(
                 error=str(exc),
                 threat_level="LOW",
+                dry_run=ctx.dry_run if ctx else False,
             )
 
     async def _run_vision_analysis(self, ctx: PipelineContext) -> dict:
@@ -337,25 +360,29 @@ class CameraPipeline:
             Dict with analysis results (persons, threat_level, alert_message, etc.).
         """
         try:
-            from backend.ai import analyse_frame_structured, analyse_frame_with_second_pass
+            from backend.ai import analyse_frame_structured, analyse_frame
 
             if ctx.jpeg_bytes is None:
                 return {"persons": [], "threat_level": "LOW", "alert_message": ""}
 
             # ── Frame Quality Gate ──────────────────────────────
-            if not self._check_frame_quality(ctx.jpeg_bytes):
+            if not self._check_frame_quality(ctx.jpeg_bytes, config=ctx.config):
                 # Frame failed quality checks — return empty result
                 return {"persons": [], "threat_level": "LOW", "alert_message": ""}
 
             # ── Per-Incident Gemini Throttle ────────────────────
-            # Max 1 Gemini vision call per 15 seconds per incident
+            throttle_sec = (
+                ctx.config.get("per_incident_throttle_sec", self._vision_throttle_seconds)
+                if ctx.config else self._vision_throttle_seconds
+            )
             now = datetime.now(timezone.utc)
-            if self._last_vision_time is not None:
+            if self._last_vision_time is not None and throttle_sec > 0:
                 elapsed = (now - self._last_vision_time).total_seconds()
-                if elapsed < 15:
+                if elapsed < throttle_sec:
                     logger.info(
-                        "Throttled: skipping Gemini vision — only %.1fs since last call (min 15s)",
+                        "Throttled: skipping Gemini vision — only %.1fs since last call (min %ds)",
                         elapsed,
+                        throttle_sec,
                     )
                     return {"persons": [], "threat_level": "LOW", "alert_message": ""}
             self._last_vision_time = now
@@ -363,6 +390,7 @@ class CameraPipeline:
             # ── Structured Analysis ─────────────────────────────
             structured = await analyse_frame_structured(
                 jpeg_bytes=ctx.jpeg_bytes,
+                config=ctx.config,
             )
 
             # Store for fallback message fix in _make_decision
@@ -378,20 +406,24 @@ class CameraPipeline:
                 logger.debug("Structured analysis returned no-change signal — skipping")
                 return {"change_detected": False}
 
-            # Run second-pass for full person detection (backward compat)
-            result = await analyse_frame_with_second_pass(
-                jpeg_bytes=ctx.jpeg_bytes,
-            )
+            # Call 2a only — person extraction for Re-ID (no text-only verdict call)
+            persons_result = await analyse_frame(jpeg_bytes=ctx.jpeg_bytes,
+                                                  config=ctx.config)
 
-            # Merge structured fields into result
+            result = persons_result or {}
+            # Use structured's threat assessment (from image) as authoritative —
+            # it's no longer overwritten by a text-only second-pass verdict
+            result["threat_level"] = structured.get("threat_level", "LOW")
+            result["alert_message"] = structured.get("description", "")
+            result["action"] = structured.get("action", "LOG_ONLY")
             result["event_type"] = structured.get("event_type", "unknown")
             result["structured_confidence"] = structured.get("confidence", 0.0)
             result["structured_description"] = structured.get("description", "")
             result["action_required"] = structured.get("action_required", False)
             result["subject_count"] = structured.get("subject_count", 0)
             result["subject_description"] = structured.get("subject_description", "")
-
-            return result or {"persons": [], "threat_level": "LOW", "alert_message": ""}
+            result["change_detected"] = True
+            return result
 
         except Exception as exc:
             logger.error("Vision analysis failed: %s", exc, exc_info=True)
@@ -425,17 +457,32 @@ class CameraPipeline:
                 logger.warning("Failed to decode frame for Re-ID")
                 return []
 
-            for person in person_results:
-                person_uid, confidence = await self._reid_engine.identify(
-                    db=None,  # Would use actual DB session
-                    frame=frame,
-                    person_result=person,
-                    location_id=ctx.location_id,
-                    user_id=ctx.user_id,
-                )
-                person["person_uid"] = person_uid
-                person["reid_confidence"] = confidence
-                person_ids.append(person_uid)
+            # Prefer real YOLO bboxes over AI-estimated bbox_normalized
+            yolo_bboxes = [d.bbox for d in ctx.yolo_detections] if ctx.yolo_detections else []
+
+            # Open a DB session for Re-ID lookups (pgvector similarity search)
+            async with self._db_factory() as db:
+                for idx, person in enumerate(person_results):
+                    # Use YOLO bbox if available for this index, otherwise fall back to AI estimate
+                    if idx < len(yolo_bboxes):
+                        person["bbox"] = yolo_bboxes[idx]
+                    person_uid, confidence = await self._reid_engine.identify(
+                        db=db,
+                        frame=frame,
+                        person_result=person,
+                        location_id=ctx.location_id,
+                        user_id=ctx.user_id,
+                        config=ctx.config,
+                    )
+                    person["person_uid"] = person_uid
+                    person["reid_confidence"] = confidence
+                    person_ids.append(person_uid)
+                # Only commit if NOT dry_run — dry_run skips all persistence
+                if not ctx.dry_run:
+                    await db.commit()
+                else:
+                    await db.rollback()
+                    logger.debug("Dry run: rolled back Re-ID DB session for %s", ctx.camera_id)
 
             # Update incident tracker with person IDs
             self._incident_tracker.person_ids = person_ids
@@ -486,6 +533,8 @@ class CameraPipeline:
             person_ids: List of person UIDs.
             ctx: PipelineContext.
         """
+        if ctx.config:
+            self._repeat_sighting.set_config(ctx.config)
         for pid in person_ids:
             level = await self._repeat_sighting.record_sighting(
                 person_uid=pid,
@@ -503,6 +552,8 @@ class CameraPipeline:
             person_ids: List of person UIDs.
             ctx: PipelineContext.
         """
+        if ctx.config:
+            self._ghost_detector.set_config(ctx.config)
         for pid in person_ids:
             await self._ghost_detector.track_entry(
                 person_uid=pid,
@@ -579,6 +630,10 @@ class CameraPipeline:
                                person_results: list) -> PipelineResult:
         """Route alert and save event to database.
 
+        When dry_run=True, alert sends and DB writes are suppressed.
+        Alerts and events that WOULD have been sent are returned in
+        the suppressed_alerts / suppressed_db_events fields.
+
         Args:
             decision: Decision dict from Gemini.
             ctx: PipelineContext.
@@ -603,47 +658,90 @@ class CameraPipeline:
             "sighting_count": len(person_results),
         }
 
-        # Build user dict — use TELEGRAM_CHAT_ID from env settings
+        # Build user dict — look up per-user telegram_chat_id from database
         from backend.config import settings as _settings
+        telegram_chat_id = None
+        if self._db_factory:
+            try:
+                from backend.storage.database import User as UserModel
+                async with self._db_factory() as db:
+                    from sqlalchemy import select
+                    result = await db.execute(
+                        select(UserModel).where(UserModel.id == ctx.user_id)
+                    )
+                    db_user = result.scalar_one_or_none()
+                    if db_user and db_user.telegram_chat_id:
+                        telegram_chat_id = db_user.telegram_chat_id
+            except Exception as exc:
+                logger.error("Failed to fetch user telegram_chat_id: %s", exc)
+                # Fallback: use global env var
+                telegram_chat_id = _settings.telegram_chat_id or None
+
         user = {
             "user_id": ctx.user_id,
-            "telegram_chat_id": _settings.telegram_chat_id or None,
+            "telegram_chat_id": telegram_chat_id,
         }
         logger.info(
             "Alert routing: telegram_bot_token=%s, telegram_chat_id=%s",
             "SET" if _settings.telegram_bot_token else "MISSING",
-            _settings.telegram_chat_id or "MISSING",
+            telegram_chat_id or "MISSING",
         )
 
-        # Route alert
+        # Route alert — suppress on dry_run, collect what WOULD have been sent
         alert_sent = False
-        try:
-            action = await self._alert_router.route_alert(
-                incident=incident,
-                user=user,
-                tier="household",  # From user config
+        suppressed_alerts = []
+        if ctx.dry_run:
+            logger.info(
+                "Dry run: would route alert — threat=%s, message=%s, channel would be based on threat level",
+                threat_level, alert_message,
             )
-            alert_sent = action.channel != "log"
-        except Exception as exc:
-            logger.error("Alert routing failed: %s", exc, exc_info=True)
+            suppressed_alerts.append({
+                "threat_level": threat_level,
+                "alert_message": alert_message,
+                "person_ids": incident["person_ids"],
+            })
+        else:
+            try:
+                action = await self._alert_router.route_alert(
+                    incident=incident,
+                    user=user,
+                    tier="household",  # From user config
+                )
+                alert_sent = action.channel != "log"
+            except Exception as exc:
+                logger.error("Alert routing failed: %s", exc, exc_info=True)
 
-        # Save to database
-        try:
-            if self._db_factory:
-                from backend.storage.crud import create_event
-                async with self._db_factory() as db:
-                    await create_event(db, {
-                        "camera_id": ctx.camera_id,
-                        "user_id": ctx.user_id,
-                        "location_id": ctx.location_id,
-                        "incident_id": self._incident_tracker.incident_id,
-                        "timestamp_start": ctx.timestamp,
-                        "threat_level": threat_level,
-                        "alert_sent": alert_sent,
-                        "gemini_decision": {"alert_message": alert_message, "persons": person_results},
-                    })
-        except Exception as exc:
-            logger.error("Failed to save incident event: %s", exc, exc_info=True)
+        # Save to database — suppress on dry_run
+        suppressed_db_events = []
+        if ctx.dry_run:
+            logger.info(
+                "Dry run: would save event — camera=%s, incident=%s, threat=%s",
+                ctx.camera_id, self._incident_tracker.incident_id, threat_level,
+            )
+            suppressed_db_events.append({
+                "camera_id": ctx.camera_id,
+                "user_id": ctx.user_id,
+                "incident_id": self._incident_tracker.incident_id,
+                "threat_level": threat_level,
+                "alert_message": alert_message,
+            })
+        else:
+            try:
+                if self._db_factory:
+                    from backend.storage.crud import create_event
+                    async with self._db_factory() as db:
+                        await create_event(db, {
+                            "camera_id": ctx.camera_id,
+                            "user_id": ctx.user_id,
+                            "location_id": ctx.location_id,
+                            "incident_id": self._incident_tracker.incident_id,
+                            "timestamp_start": ctx.timestamp,
+                            "threat_level": threat_level,
+                            "alert_sent": alert_sent,
+                            "gemini_decision": {"alert_message": alert_message, "persons": person_results},
+                        })
+            except Exception as exc:
+                logger.error("Failed to save incident event: %s", exc, exc_info=True)
 
         return PipelineResult(
             incident_id=self._incident_tracker.incident_id,
@@ -651,6 +749,9 @@ class CameraPipeline:
             alert_message=alert_message,
             alert_sent=alert_sent,
             person_ids=[p.get("person_uid", "") for p in person_results],
+            dry_run=ctx.dry_run,
+            suppressed_alerts=suppressed_alerts,
+            suppressed_db_events=suppressed_db_events,
         )
 
     async def shutdown(self) -> None:
