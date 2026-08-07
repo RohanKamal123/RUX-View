@@ -172,6 +172,22 @@ If you change a threshold's *default*, update `config_store.DEFAULTS` — don't 
 edit the call site — otherwise the tuning UI and `doc/NUMERICAL_AUDIT.md` drift out of
 sync with the code again.
 
+**Don't assume a key in `DEFAULTS` is actually read anywhere.** A systematic check
+found ~21 of the 58 keys were declared but never consumed outside `config_store.py`
+itself — moving their tuning-dashboard slider did nothing. `retention_*_days` /
+`transcript_retention_days` / `max_cameras_per_user` are now wired (see Dashboard and
+Storage sections). Still dead as of this writing: `alert_retry_interval_sec` /
+`alert_max_retries` / `telegram_timeout_sec` (hardcoded in `alert_router.py` /
+`telegram_client.py`), the four `cache_ttl_*` keys (`cdn_manager.py`), and
+`pg_find_similar_limit`. Structurally can't be "live" the way the category name implies
+without more work: `db_pool_*` keys configure SQLAlchemy's engine at process startup
+(`engine.py`), and `rtsp_*`/`motion_*` keys are consumed client-side
+(`connect/camera/motion_detector.py` already accepts a `config` dict; `rtsp_reader.py`
+doesn't yet) but `connect/` has no path to ever receive `config_store` values — it's a
+separate Windows deployable with no Redis access, and no client-config-sync mechanism
+exists yet. Verify with `grep -rn "<key_name>" backend/ connect/` before trusting that a
+key does anything.
+
 ### Clip-based dry-run testing (`backend/api/clip_analysis.py`, `clip_test.py`)
 
 Two ways to run the real pipeline against a recorded clip instead of a live camera,
@@ -200,10 +216,28 @@ vocabulary (event_type, threat_level, confidence) and discards results with
 confidence < 0.6.
 
 `reid_engine.py` does person re-identification via pgvector cosine similarity against
-the `persons.embedding` column (>0.85 = confident match, 0.5–0.72 = ask Gemini as a
+the `persons.embedding` column (0.72+ = confident match, 0.5–0.72 = ask Gemini as a
 tiebreaker, <0.5 = mint a new `person_uid`). Note: BoxMOT/FastReID is commented out of
 `requirements.txt` (numpy conflict) — embeddings currently come only from Gemini
-appearance descriptions, not a dedicated embedding model.
+appearance descriptions, not a dedicated embedding model. `identify()` persists every
+match (new person or existing) via `_persist_sighting()` — `pipeline.py` already opened
+a real DB session and passed it in, but `identify()` never wrote anything with it before
+this was fixed, so every incident minted a brand-new `person_uid` regardless of history
+and ghost detection / repeat-sighting escalation (both keyed on a `person_uid` recurring
+across incidents) were silently non-functional in production.
+
+`query_agent.py` is the NL query engine backing `POST /queries/natural` — a Gemini
+function-calling agent (tools: `search_events`, `get_event_detail`,
+`get_person_sightings`, bounded to 4 tool calls) reading real event data via
+`HybridCRUD`. It replaced two things: `query_engine.py` (deleted — a fixed
+intent-classify-then-hand-built-SQL pipeline that was dead code, never imported outside
+its own test, and whose DB-fetch step was a stub that always returned `[]`), and the
+substring-search implementation that actually was live in `backend/api/queries.py`
+(zero LLM calls, despite being the "natural language query" endpoint). Tool set is
+deliberately narrower than a first pass would suggest: `persons` / `person_sightings` /
+`scene_states` reads looked like the obvious tool targets, but nothing in the live
+pipeline populates `scene_states` at all, so a `get_scene_state` tool would query a
+table with no writer.
 
 ### Alerting (`backend/alerts/`)
 
@@ -227,10 +261,22 @@ regardless of tier) via `backend/storage/cleanup.py`.
 
 `server.py` is the FastAPI app entry point (`backend.dashboard.server:app`) and owns
 the APScheduler jobs registered in its lifespan handler (daily digest 22:00, weekly
-digest Monday 08:00, transcript cleanup daily 03:00 — `AsyncIOScheduler`, not the
-`schedule` library). `auth.py` verifies Firebase ID tokens and exposes
-`get_current_user()` / `require_tier()` dependencies used across `backend/api/`.
-Subscription tiers gate features: `free` → `guard`/`household` → `guard_pro`/`business`.
+digest Monday 08:00, retention cleanup daily 03:00 — `AsyncIOScheduler`, not the
+`schedule` library). This wiring is recent — `apscheduler` had been a declared
+dependency with no scheduler anywhere in the codebase, `backend/storage/cleanup.py`'s
+`DataCleanup` had never been instantiated, and its deletion methods were literal
+`# TODO: Implement with real SQLAlchemy query` stubs that always returned 0. Retention
+days now come from `config_store` (`retention_free_days` / `retention_household_days`
+/ `retention_business_days` / `transcript_retention_days`), not a hardcoded dict.
+`auth.py` verifies Firebase ID tokens and exposes `get_current_user()` /
+`require_tier()` dependencies used across `backend/api/`. Subscription tiers gate
+features, but the vocabulary is genuinely inconsistent across the codebase, not just a
+naming preference: `auth.py`'s `TIER_HIERARCHY` and the real billing logic in
+`backend/api/payments.py` use `free`/`guard`/`guard_pro`, while `payment.html`'s
+pricing page and `backend/core/pipeline.py`'s hardcoded alert-routing tier still say
+`free`/`household`/`business` (299/499 BDT) — and `payments.py`'s actual guard price is
+400 BDT, not 299. Don't assume either vocabulary is authoritative without checking
+which one the specific code path you're touching actually uses.
 
 ### Client agent (`connect/`)
 
