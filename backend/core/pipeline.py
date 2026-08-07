@@ -707,6 +707,7 @@ class CameraPipeline:
                     incident=incident,
                     user=user,
                     tier="household",  # From user config
+                    config=ctx.config,
                 )
                 alert_sent = action.channel != "log"
             except Exception as exc:

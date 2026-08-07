@@ -49,13 +49,17 @@ class AlertRouter:
         self.voice = voice_note_generator
         self.sms = sms_client
 
-    async def route_alert(self, incident: dict, user: dict, tier: str) -> AlertAction:
+    async def route_alert(self, incident: dict, user: dict, tier: str,
+                           config: Optional[dict] = None) -> AlertAction:
         """Route an alert based on threat level and user tier.
 
         Args:
             incident: Dict with threat_level, alert_message, person_ids, timeline, jpeg_bytes.
             user: User dict with telegram_chat_id, secondary_contact, etc.
             tier: User tier (free/household/business).
+            config: Optional runtime config dict (e.g. from config_store).
+                    ``alert_retry_interval_sec``/``alert_max_retries`` are
+                    read from it for EMERGENCY retry escalation.
 
         Returns:
             AlertAction with delivery result.
@@ -76,7 +80,7 @@ class AlertRouter:
             return await self._route_high(incident, user)
 
         if threat_level == "EMERGENCY":
-            return await self._route_emergency(incident, user)
+            return await self._route_emergency(incident, user, config)
 
         # Fallback: log only
         return AlertAction(channel="log", message="Unknown threat level: %s" % threat_level)
@@ -159,12 +163,14 @@ class AlertRouter:
             logger.error("Failed to send HIGH Telegram alert")
             return AlertAction(channel="log", message=caption)
 
-    async def _route_emergency(self, incident: dict, user: dict) -> AlertAction:
+    async def _route_emergency(self, incident: dict, user: dict,
+                                config: Optional[dict] = None) -> AlertAction:
         """EMERGENCY: Telegram urgent + voice note + retry logic.
 
         Args:
             incident: Incident data dict.
             user: User dict with telegram_chat_id, secondary_contact.
+            config: Optional runtime config dict, see route_alert().
 
         Returns:
             AlertAction after retry attempts.
@@ -209,25 +215,31 @@ class AlertRouter:
 
             return text_ok and (photo_ok or voice_ok)
 
-        action = await self._retry_with_escalation(send_emergency, incident, user)
+        action = await self._retry_with_escalation(send_emergency, incident, user, config)
         return action
 
     async def _retry_with_escalation(self, send_func, incident: dict,
-                                      user: dict) -> AlertAction:
+                                      user: dict,
+                                      config: Optional[dict] = None) -> AlertAction:
         """Retry delivery with secondary contact escalation.
 
         Args:
             send_func: Async callable that returns True on success.
             incident: Incident data dict.
             user: User dict with secondary_contact.
+            config: Optional runtime config dict. ``alert_retry_interval_sec``
+                    and ``alert_max_retries`` are read from it, falling back
+                    to RETRY_INTERVAL/MAX_RETRIES.
 
         Returns:
             AlertAction after retry attempts.
         """
         message = incident.get("alert_message", "Emergency alert")
+        retry_interval = config.get("alert_retry_interval_sec", RETRY_INTERVAL) if config else RETRY_INTERVAL
+        max_retries = config.get("alert_max_retries", MAX_RETRIES) if config else MAX_RETRIES
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            logger.info("Emergency alert retry attempt %d/%d", attempt, MAX_RETRIES)
+        for attempt in range(1, max_retries + 1):
+            logger.info("Emergency alert retry attempt %d/%d", attempt, max_retries)
 
             success = await send_func()
 
@@ -240,8 +252,8 @@ class AlertRouter:
                     acknowledged=True,
                 )
 
-            if attempt < MAX_RETRIES:
-                await asyncio.sleep(RETRY_INTERVAL)
+            if attempt < max_retries:
+                await asyncio.sleep(retry_interval)
 
         # All retries failed — try secondary contact
         secondary = user.get("secondary_contact")
@@ -255,10 +267,10 @@ class AlertRouter:
                 )
                 await self.telegram.send_text(secondary_chat_id, secondary_msg)
 
-        logger.error("Emergency alert undelivered after %d attempts", MAX_RETRIES)
+        logger.error("Emergency alert undelivered after %d attempts", max_retries)
         return AlertAction(
             channel="log",
             message=message,
-            retry_count=MAX_RETRIES,
+            retry_count=max_retries,
             acknowledged=False,
         )

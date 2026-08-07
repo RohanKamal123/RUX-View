@@ -28,9 +28,21 @@ class TelegramClient:
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client."""
+        """Get or create the HTTP client.
+
+        Timeout is read from config_store's telegram_timeout_sec once, when
+        the client is first built (not on every call — the client is then
+        reused for the lifetime of this TelegramClient instance, matching
+        the existing lazy-singleton pattern).
+        """
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            timeout = 30.0
+            try:
+                from backend.core.config_store import get_telegram_timeout
+                timeout = await get_telegram_timeout()
+            except Exception as exc:
+                logger.warning("Failed to read telegram_timeout_sec config, using default: %s", exc)
+            self._client = httpx.AsyncClient(timeout=timeout)
         return self._client
 
     async def send_text(self, chat_id: str, message: str) -> bool:

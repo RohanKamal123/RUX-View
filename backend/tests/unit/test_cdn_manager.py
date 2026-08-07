@@ -5,9 +5,11 @@ Tests the CDN integration module including uploads, signed URLs,
 cache invalidation, object management, and storage usage.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.storage.cdn_manager import (
     CDNManager,
@@ -37,6 +39,34 @@ async def test_upload_static_returns_cdn_url(cdn: CDNManager):
     url = await cdn.upload_static("css/style.css", "text/css")
     assert "cdn.test.visionos.app" in url
     assert "static/css/style.css" in url
+
+
+@pytest.mark.asyncio
+async def test_upload_static_uses_configured_cache_ttl(cdn: CDNManager):
+    """cache_ttl in the stored metadata should come from config_store's
+    cache_ttl_static_sec, not the hardcoded CACHE_TTL_STATIC constant --
+    this is what makes the tuning dashboard's slider for it actually take
+    effect (CDNManager is a documented mock stand-in for real GCS, so this
+    doesn't change any real upload behavior today, but keeps the recorded
+    TTL correct for when it does)."""
+    with patch(
+        "backend.core.config_store.get_config",
+        AsyncMock(return_value={"values": {"cache_ttl_static_sec": 7200}}),
+    ):
+        await cdn.upload_static("css/style.css", "text/css")
+    assert cdn._metadata["static/css/style.css"]["cache_ttl"] == 7200
+
+
+@pytest.mark.asyncio
+async def test_upload_static_falls_back_to_default_on_config_error(cdn: CDNManager):
+    """A config_store read failure must not break the upload -- falls
+    back to the CACHE_TTL_STATIC module default."""
+    with patch(
+        "backend.core.config_store.get_config",
+        AsyncMock(side_effect=RuntimeError("redis down")),
+    ):
+        await cdn.upload_static("css/style.css", "text/css")
+    assert cdn._metadata["static/css/style.css"]["cache_ttl"] == CACHE_TTL_STATIC
 
 
 @pytest.mark.asyncio

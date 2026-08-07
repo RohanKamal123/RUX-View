@@ -60,6 +60,24 @@ class CDNManager:
         self._store: dict[str, bytes] = {}
         self._metadata: dict[str, dict] = {}
 
+    async def _get_cache_ttl(self, key: str, default: int) -> int:
+        """Read a cache_ttl_* value from config_store, falling back to
+        the CACHE_TTL_* module constant if config_store is unreachable.
+
+        This CDNManager is a documented mock/local-compatible stand-in for
+        real GCS + CDN (see class docstring) — no real upload happens, so
+        this doesn't change behavior today, but it keeps the cache_ttl
+        recorded in _metadata (and returned to callers) consistent with
+        what the tuning dashboard says, for whenever real GCS integration
+        lands.
+        """
+        try:
+            from backend.core.config_store import get_config
+            cfg = (await get_config())["values"]
+            return int(cfg.get(key, default))
+        except Exception:
+            return default
+
     # ------------------------------------------------------------------
     # Uploads
     # ------------------------------------------------------------------
@@ -78,7 +96,7 @@ class CDNManager:
         self._metadata[object_path] = {
             "content_type": content_type,
             "created": datetime.now(timezone.utc),
-            "cache_ttl": CACHE_TTL_STATIC,
+            "cache_ttl": await self._get_cache_ttl("cache_ttl_static_sec", CACHE_TTL_STATIC),
         }
         return self.get_cdn_url(object_path)
 
@@ -102,7 +120,7 @@ class CDNManager:
         self._metadata[object_path] = {
             "content_type": "image/jpeg",
             "created": datetime.now(timezone.utc),
-            "cache_ttl": CACHE_TTL_THUMBNAIL,
+            "cache_ttl": await self._get_cache_ttl("cache_ttl_thumbnail_sec", CACHE_TTL_THUMBNAIL),
         }
         return self.get_cdn_url(object_path)
 
@@ -125,7 +143,7 @@ class CDNManager:
         self._metadata[object_path] = {
             "content_type": "video/mp4",
             "created": datetime.now(timezone.utc),
-            "cache_ttl": CACHE_TTL_CLIP,
+            "cache_ttl": await self._get_cache_ttl("cache_ttl_clip_sec", CACHE_TTL_CLIP),
         }
         return self.get_cdn_url(object_path)
 
@@ -142,7 +160,7 @@ class CDNManager:
         self._metadata[object_path] = {
             "content_type": "application/pdf",
             "created": datetime.now(timezone.utc),
-            "cache_ttl": CACHE_TTL_RECEIPT,
+            "cache_ttl": await self._get_cache_ttl("cache_ttl_receipt_sec", CACHE_TTL_RECEIPT),
         }
         return self.get_cdn_url(object_path)
 

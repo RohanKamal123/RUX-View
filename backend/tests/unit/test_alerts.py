@@ -168,6 +168,43 @@ class TestAlertRouter:
         assert action.retry_count == 3  # MAX_RETRIES
 
     @pytest.mark.asyncio
+    async def test_retry_uses_config_overrides(self):
+        """alert_max_retries/alert_retry_interval_sec from config_store
+        should override RETRY_INTERVAL/MAX_RETRIES, not the hardcoded
+        module constants -- this is what makes the tuning dashboard's
+        sliders for these actually take effect. Uses a short interval and
+        low retry count so this test doesn't itself take 180s+ like the
+        module-constant-driven retry tests above (RETRY_INTERVAL=90,
+        MAX_RETRIES=3, asyncio.sleep is never mocked in this file)."""
+        telegram = AsyncMock(spec=TelegramClient)
+        telegram.send_text = AsyncMock(return_value=False)
+        telegram.send_photo = AsyncMock(return_value=False)
+        telegram.send_voice = AsyncMock(return_value=False)
+
+        voice = MagicMock()
+        voice.generate_voice_note = AsyncMock(return_value=b"fake_ogg_data")
+
+        router = AlertRouter(
+            telegram_client=telegram,
+            voice_note_generator=voice,
+            sms_client=MagicMock(),
+        )
+        incident = {
+            "threat_level": "EMERGENCY",
+            "alert_message": "Test",
+            "camera_name": "Camera",
+            "timestamp": "2024-01-01T00:00:00",
+        }
+        user = {"telegram_chat_id": "123456"}
+        config = {"alert_max_retries": 1, "alert_retry_interval_sec": 0}
+
+        action = await router._retry_with_escalation(
+            lambda: telegram.send_text("123456", "test"), incident, user, config,
+        )
+        assert action.retry_count == 1  # config override, not MAX_RETRIES=3
+        assert telegram.send_text.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_secondary_contact_escalation(self):
         """Secondary contact should be notified after retries fail."""
         telegram = AsyncMock(spec=TelegramClient)
@@ -263,6 +300,32 @@ class TestTelegramClient:
             "Main Door", "2024-01-01 03:00:00", "Intruder", 4
         )
         assert "4th sighting today" in msg
+
+    @pytest.mark.asyncio
+    async def test_get_client_uses_configured_timeout(self):
+        """httpx client timeout should come from config_store's
+        telegram_timeout_sec, not the hardcoded 30.0 default -- this is
+        what makes the tuning dashboard's slider for it actually take
+        effect."""
+        client = TelegramClient("fake_token")
+        with patch(
+            "backend.core.config_store.get_telegram_timeout",
+            AsyncMock(return_value=5.0),
+        ):
+            http_client = await client._get_client()
+        assert http_client.timeout.connect == 5.0
+
+    @pytest.mark.asyncio
+    async def test_get_client_falls_back_to_default_on_config_error(self):
+        """A config_store read failure must not prevent the client from
+        being built -- falls back to the 30.0 default."""
+        client = TelegramClient("fake_token")
+        with patch(
+            "backend.core.config_store.get_telegram_timeout",
+            AsyncMock(side_effect=RuntimeError("redis down")),
+        ):
+            http_client = await client._get_client()
+        assert http_client.timeout.connect == 30.0
 
 
 class TestSMSClient:

@@ -267,6 +267,19 @@ async def get_config() -> dict:
     }
 
 
+async def get_telegram_timeout() -> float:
+    """Convenience accessor for the ``telegram_timeout_sec`` tunable.
+
+    Used by TelegramClient._get_client(), which lazily builds its
+    httpx.AsyncClient on first use — reading config there (rather than at
+    TelegramClient.__init__ time) means a config change takes effect the
+    next time a fresh client gets built, without needing __init__ itself
+    to become async.
+    """
+    cfg = await get_config()
+    return float(cfg["values"].get("telegram_timeout_sec", DEFAULTS["telegram_timeout_sec"]))
+
+
 async def get_max_cameras() -> int:
     """Convenience accessor for the ``max_cameras_per_user`` tunable.
 
