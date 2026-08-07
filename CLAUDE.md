@@ -87,6 +87,15 @@ when reasoning about cost, latency, or "real-time" claims.
 connect agent --HTTPS trigger--> backend/api/triggers.py
                                        |
                                        v
+                    Session tracking (in triggers.py, per camera_id)
+                    Frames within SESSION_TIMEOUT_SEC (default 180s) of the last
+                    motion merge into the active event; otherwise a new event is
+                    created. A background loop (_session_cleanup_loop) closes
+                    sessions every 15s once they go quiet, writing timestamp_end /
+                    duration_sec / max_threat (threat escalates via _THREAT_ORDER,
+                    PENDING < LOW < MEDIUM < HIGH < CRITICAL < EMERGENCY).
+                                       |
+                                       v
                           PipelineManager (backend/core/pipeline_manager.py)
                           one CameraPipeline per camera_id, created lazily
                                        |
@@ -119,17 +128,66 @@ Per-camera pipelines are cached in `PipelineManager._pipelines` for the life of 
 process; there's no eviction, so a long-lived server accumulates one `CameraPipeline`
 per camera ever seen.
 
+`PipelineV2.process_frame()` takes a `dry_run: bool` flag — when `True`, Gemini calls
+still happen for real (so it's still billable) but DB writes, Redis writes, and alert
+sends are all suppressed. This is what the clip-analysis/tuning tools below use to test
+against production logic without touching production state.
+
 ### Cost-control layers (matters when touching the pipeline)
 
 Gemini calls are the dominant cost, so several independent throttles exist — don't
-remove one without understanding the others:
-- Global rate limit: 1 Gemini call / 8s across all cameras (`ai_client.py`).
-- Incident builder: 1 call / 120s per camera (YOLO/tracker decides if a call is due).
-- Per-incident throttle: 1 call / 15s inside `CameraPipeline._run_vision_analysis`.
+remove one without understanding the others. All of them are now runtime-tunable, not
+just hardcoded (see "Runtime-tunable thresholds" below) — the values here are defaults:
+- Global rate limit: 1 Gemini call / 8s across all cameras (`ai_client.py`,
+  `gemini_min_interval_sec`).
+- Incident builder: 1 call / 60s per camera (`incident_builder.py`,
+  `gemini_interval_sec`) — the module docstring says 120s, that's stale; 60s is what's
+  enforced (see `doc/NUMERICAL_AUDIT.md` Critical Finding #1).
+- Per-incident throttle: 1 call / 15s inside `CameraPipeline._run_vision_analysis`
+  (`per_incident_throttle_sec`). Note: `pipeline.py`'s `_VISION_THROTTLE_SECONDS`
+  instance attribute is dead code (never assigned to `self`) — the 15s value is a
+  separate hardcoded literal at the actual check site (Critical Finding #2).
 - `NO_CHANGE` short-circuit: Gemini can return `{"change_detected": false}`, which
   skips Re-ID, cross-camera, alerting, and the DB write entirely.
 - Frame quality gate: too dark / too blurry / too little motion vs. previous frame
   skips the Gemini call before it happens (fails open on decode errors).
+
+### Runtime-tunable thresholds (`backend/core/config_store.py`)
+
+Every numeric constant enumerated in `doc/NUMERICAL_AUDIT.md` (58 keys — detection,
+motion, frame-quality gates, tracking, Gemini gating, Re-ID, ghost/repeat, alerts,
+storage, retention, RTSP, clip analysis) has a hardcoded default in
+`config_store.DEFAULTS` and can be overridden live by writing a JSON blob to the
+Upstash Redis key `visionos:tunable_config` — no redeploy needed. `get_config()`
+merges stored overrides over defaults and returns `{values, defaults, modified_keys,
+category_groups, live_effective}`; `set_config()`/`reset_config()` mutate it. Exposed
+via `backend/api/config.py` as `GET/POST /api/config/thresholds` and
+`POST /api/config/thresholds/reset`, and edited from the dashboard's Tuning page
+(`backend/dashboard/templates/tuning.html`, route `/dashboard/tuning`).
+`LIVE_EFFECTIVE` is the subset of keys that affect a single frame's detection outcome
+(excludes alerts/storage/caching/retention/account-quota categories) — that's the set
+the clip-test tool below treats as "affects this run".
+
+If you change a threshold's *default*, update `config_store.DEFAULTS` — don't just
+edit the call site — otherwise the tuning UI and `doc/NUMERICAL_AUDIT.md` drift out of
+sync with the code again.
+
+### Clip-based dry-run testing (`backend/api/clip_analysis.py`, `clip_test.py`)
+
+Two ways to run the real pipeline against a recorded clip instead of a live camera,
+both used by the tuning dashboard to answer "if I change this slider, what changes":
+- `POST /api/clip-analysis/upload` + `/{clip_id}/run` (SSE) — upload an MP4 (max
+  200MB), server extracts frames (~10fps) and streams per-frame results.
+- `POST /api/config/clip-test` — takes pre-extracted JPEGs from the browser, streams
+  NDJSON (one JSON object per line: `meta` → `frame`* → `summary`), reports which
+  pipeline stage (`yolo_gate` / `tracker` / `incident_builder` / `complete`) consumed
+  or passed each frame. Hard ceiling of 90 frames (~30s @ 3fps) and 500KB/frame.
+
+Both use a synthetic `camera_id` (e.g. `clip-analysis-{clip_id}`) so incident-builder
+state stays isolated from production cameras, and both call
+`cleanup_synthetic_camera()` in a `finally` block to avoid leaking that state. Both
+share the global 8s Gemini rate limiter with production traffic — running a clip test
+will add latency to real camera triggers that land during the same window.
 
 ### AI layer (`backend/ai/`)
 
@@ -200,6 +258,11 @@ required.
 
 The repo has substantial existing docs — check them before re-deriving design context:
 - `doc/ARCHITECTURE.md` — full technical architecture spec.
+- `doc/NUMERICAL_AUDIT.md` — authoritative, line-numbered inventory of every hardcoded
+  threshold/timeout/limit in the codebase and what it controls, plus a "Critical
+  Findings" section documenting known bugs (e.g. the two mismatches called out above).
+  This is the source `config_store.DEFAULTS` was derived from — cross-check both when
+  touching a threshold.
 - `doc/DECISIONS-1.md` — numbered decision log (D001, D005, D022, ...). Treat as
   historical record, not always current: e.g. D025 says the Windows agent build uses
   Nuitka, but the codebase (`build_client.bat`, `connect/CONTEXT.md`) actually uses
