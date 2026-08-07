@@ -8,6 +8,8 @@ Uses HybridCRUD which falls back to PostgreSQL when MEGA.nz is unavailable.
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.core.camera_limits import CameraLimits
+from backend.core.config_store import get_max_cameras
 from backend.dashboard.auth import get_current_user
 from backend.storage.hybrid_crud import HybridCRUD
 
@@ -116,6 +118,28 @@ async def add_camera(
         })
 
     try:
+        # Check the limit BEFORE creating — create_camera() itself has no
+        # quota check, so without this the "20-camera limit" this endpoint
+        # advertises was never actually enforced (a camera would be created
+        # unconditionally, and the limit only showed up after the fact in
+        # the quota numbers returned alongside a 201).
+        existing = await crud.get_user_cameras(user_id)
+        tier = user.get("tier", "free")
+        max_cameras = await get_max_cameras()
+        validation = CameraLimits.validate_camera_count(
+            user_id=user_id,
+            current_count=len(existing),
+            new_count=1,
+            tier=tier,
+            max_cameras_override=max_cameras,
+        )
+        if not validation.allowed:
+            raise HTTPException(status_code=403, detail={
+                "error": validation.message,
+                "code": "CAMERA_LIMIT_EXCEEDED",
+                "upgrade_suggestion": validation.upgrade_suggestion,
+            })
+
         camera = await crud.create_camera(
             user_id=user_id,
             name=name,
@@ -132,14 +156,11 @@ async def add_camera(
                 "remaining": quota.remaining,
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        err_msg = str(e)
-        if "limit" in err_msg.lower():
-            raise HTTPException(status_code=403, detail={
-                "error": err_msg, "code": "CAMERA_LIMIT_EXCEEDED",
-            })
         raise HTTPException(status_code=500, detail={
-            "error": err_msg, "code": "STORAGE_ERROR",
+            "error": str(e), "code": "STORAGE_ERROR",
         })
 
 

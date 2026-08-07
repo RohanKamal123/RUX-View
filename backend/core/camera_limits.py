@@ -68,15 +68,26 @@ class CameraLimits:
     TIER_LIMITS = TIER_LIMITS
 
     @staticmethod
-    def get_max_cameras(tier: str) -> int:
+    def get_max_cameras(tier: str, override: Optional[int] = None) -> int:
         """Get the maximum number of cameras allowed for a given tier.
 
         Args:
             tier: Subscription tier (free/household/business).
+            override: If given, used instead of the TIER_LIMITS table — for
+                      callers that have already fetched the live
+                      max_cameras_per_user value from config_store
+                      (backend.core.config_store.get_max_cameras()), since
+                      this module's own constants are static and not
+                      runtime-tunable. Every TIER_LIMITS entry is 20 today,
+                      i.e. there is no actual per-tier differentiation yet —
+                      the override lets the one runtime-tunable knob take
+                      effect without this module needing to become async.
 
         Returns:
             Maximum cameras allowed for the tier.
         """
+        if override is not None:
+            return override
         return TIER_LIMITS.get(tier, MAX_CAMERAS_PER_USER)
 
     @staticmethod
@@ -85,6 +96,7 @@ class CameraLimits:
         current_count: int,
         new_count: int,
         tier: str = "free",
+        max_cameras_override: Optional[int] = None,
     ) -> ValidationResult:
         """Validate whether adding new_count cameras would exceed the limit.
 
@@ -93,11 +105,12 @@ class CameraLimits:
             current_count: Current number of cameras the user has.
             new_count: Number of new cameras being added.
             tier: Subscription tier (free/household/business).
+            max_cameras_override: See get_max_cameras().
 
         Returns:
             ValidationResult with allowed status and details.
         """
-        max_cameras = CameraLimits.get_max_cameras(tier)
+        max_cameras = CameraLimits.get_max_cameras(tier, override=max_cameras_override)
         total_after = current_count + new_count
         remaining = max_cameras - current_count
 

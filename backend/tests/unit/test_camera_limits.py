@@ -89,9 +89,15 @@ class TestCameraLimits:
         assert pct == 0.0
 
     def test_get_camera_usage_percentage_handles_zero_max(self):
-        """Verify usage percentage handles zero max gracefully."""
+        """Verify usage percentage handles an unknown tier gracefully.
+
+        "unknown" isn't in TIER_LIMITS, so this falls back to the default
+        20 (per get_max_cameras), not an actual max_cameras=0 case (that's
+        a different code path in get_camera_usage_percentage — the
+        `if max_cameras == 0: return 100.0` branch, not exercised here).
+        """
         pct = CameraLimits.get_camera_usage_percentage("user1", 5, "unknown")
-        assert pct == 100.0  # falls back to default 20, so 5/20 = 25%
+        assert pct == 25.0  # falls back to default 20, so 5/20 = 25%
 
     def test_get_upgrade_suggestion_when_near_limit(self):
         """Verify upgrade suggestion when near limit."""

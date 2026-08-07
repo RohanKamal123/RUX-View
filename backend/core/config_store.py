@@ -237,11 +237,19 @@ async def get_config() -> dict:
     category_groups, live_effective.
 
     The ``values`` dict merges stored Redis values over ``DEFAULTS`` so
-    missing keys always fall back to their built-in default.
+    missing keys always fall back to their built-in default. Fails open on
+    any Redis error (timeout, connection refused, etc.) — this is read on
+    every trigger via PipelineV2 and now also on dashboard page renders
+    (see get_max_cameras()), so a transient Redis blip must degrade to
+    "use hardcoded defaults", not take down the pipeline or the dashboard.
     """
-    redis = await get_redis_client()
-    raw = await redis.get(CONFIG_KEY)
     merged = dict(DEFAULTS)
+    try:
+        redis = await get_redis_client()
+        raw = await redis.get(CONFIG_KEY)
+    except Exception as exc:
+        logger.warning("config_store: Redis unavailable, using defaults: %s", exc)
+        raw = None
     if raw is not None:
         try:
             stored = json.loads(raw)
@@ -257,6 +265,19 @@ async def get_config() -> dict:
         "category_groups": {cat: list(keys) for cat, keys in CATEGORY_GROUPS.items()},
         "live_effective": sorted(LIVE_EFFECTIVE),
     }
+
+
+async def get_max_cameras() -> int:
+    """Convenience accessor for the ``max_cameras_per_user`` tunable.
+
+    For call sites that only need this one value (camera-quota display,
+    limit enforcement) and don't want the full get_config() envelope.
+    Previously this limit was hardcoded to 20 in half a dozen places
+    across hybrid_crud.py, dashboard/routes.py, and core/camera_limits.py
+    instead of reading this tunable — see CLAUDE.md.
+    """
+    cfg = await get_config()
+    return int(cfg["values"].get("max_cameras_per_user", DEFAULTS["max_cameras_per_user"]))
 
 
 async def set_config(updates: dict) -> dict:

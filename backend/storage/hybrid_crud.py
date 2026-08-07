@@ -249,9 +249,11 @@ class HybridCRUD:
 
     async def get_camera_quota(self, user_id: str) -> QuotaInfo:
         """Get camera quota — pass cameras list to avoid extra DB call."""
+        from backend.core.config_store import get_max_cameras
+
         cameras = await self.get_user_cameras(user_id)
         total = len(cameras)
-        max_cam = 20
+        max_cam = await get_max_cameras()
         remaining = max(0, max_cam - total)
         usage_pct = round((total / max_cam) * 100, 1) if max_cam > 0 else 0.0
         return QuotaInfo(

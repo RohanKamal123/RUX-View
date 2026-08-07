@@ -155,8 +155,10 @@ async def main_dashboard(
         cameras_offline = camera_count - cameras_online
 
         # Build quota from already-fetched cameras — no extra DB call
+        # (get_max_cameras() only reads config_store/Redis, not Postgres)
         from backend.storage.hybrid_crud import QuotaInfo
-        max_cam = 20
+        from backend.core.config_store import get_max_cameras
+        max_cam = await get_max_cameras()
         total = len(cameras)
         quota = QuotaInfo(
             total_cameras=total,
@@ -309,8 +311,9 @@ async def settings_page(
         profile = await crud.get_or_create_user(user_id=user_id)
         cameras = await crud.get_user_cameras(user_id)
 
+        from backend.core.config_store import get_max_cameras as _get_max_cameras
         camera_count = len(cameras)
-        max_cameras = 20
+        max_cameras = await _get_max_cameras()
         remaining = max(0, max_cameras - camera_count)
         quota_percentage = round((camera_count / max_cameras) * 100, 1) if max_cameras > 0 else 0
 
@@ -501,7 +504,8 @@ async def dashboard_stats(
         cameras_online = sum(1 for c in cameras if c.is_active)
 
         # Build stats inline — no extra quota DB call
-        max_cam = 20
+        from backend.core.config_store import get_max_cameras as _get_max_cameras
+        max_cam = await _get_max_cameras()
         total = len(cameras)
         quota_remaining = max(0, max_cam - total)
         quota_usage_pct = round((total / max_cam) * 100, 1) if max_cam > 0 else 0
