@@ -53,9 +53,6 @@ doc/
 # Infrastructure configs (not needed at runtime)
 infrastructure/
 
-# Alembic versions (migrations run separately)
-alembic/versions/
-
 # Build artifacts
 dist/
 build/
