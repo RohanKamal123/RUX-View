@@ -26,8 +26,18 @@ def test_scheduler_starts_with_all_jobs():
         job_ids = {job.id for job in scheduler.get_jobs()}
         assert job_ids == {
             "daily_retention_cleanup", "daily_digest", "weekly_digest",
-            "db_pool_config_refresh",
+            "db_pool_config_refresh", "rtmp_camera_poll",
         }
+
+
+def test_rtmp_camera_poll_runs_every_20_seconds():
+    """Samples every connection_type=rtmp_push camera and feeds frames
+    through the trigger pipeline -- see
+    backend/core/ingest/rtmp_poller.py's module docstring for the
+    single-Cloud-Run-instance-only caveat on this job."""
+    with TestClient(app):
+        job = server_module.scheduler.get_job("rtmp_camera_poll")
+        assert job.trigger.interval.total_seconds() == 20
 
 
 def test_db_pool_config_refresh_runs_every_5_minutes():

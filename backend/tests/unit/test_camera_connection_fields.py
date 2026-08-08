@@ -277,3 +277,64 @@ class TestHybridCrudEncryptsPassword:
         assert captured["rtmp_stream_key"] is not None
         assert captured["rtmp_stream_key"].startswith("CAM_")
         assert result.rtmp_stream_key == "CAM_TEST_generated"
+
+
+class TestGetCamerasByConnectionType:
+    """backend/core/ingest/rtmp_poller.py's periodic sampler has no
+    request-scoped user_id to filter by -- it needs every rtmp_push
+    camera across all users, unlike every other camera query in this
+    class."""
+
+    @pytest.mark.asyncio
+    async def test_forwards_connection_type_and_maps_results(self):
+        from backend.storage.hybrid_crud import HybridCRUD
+
+        crud = HybridCRUD(pg_crud=None)
+        crud._pg_available = True
+
+        class FakePgCam:
+            def __init__(self, id_):
+                self.id = id_
+                self.user_id = "user_001"
+                self.name = "Lobby"
+                self.mode = "indoor"
+                self.enabled = True
+                self.created_at = None
+                self.rtsp_url = None
+                self.connection_type = "rtmp_push"
+                self.p2p_serial = None
+                self.p2p_username = None
+                self.rtmp_stream_key = f"{id_}_key"
+
+        captured = {}
+
+        async def fake_get_cameras_by_connection_type(connection_type):
+            captured["connection_type"] = connection_type
+            return [FakePgCam("CAM_1"), FakePgCam("CAM_2")]
+
+        crud._pg = type(
+            "FakePg", (),
+            {"get_cameras_by_connection_type": staticmethod(fake_get_cameras_by_connection_type)},
+        )()
+
+        result = await crud.get_cameras_by_connection_type("rtmp_push")
+
+        assert captured["connection_type"] == "rtmp_push"
+        assert len(result) == 2
+        assert result[0].camera_id == "CAM_1"
+        assert result[0].rtmp_stream_key == "CAM_1_key"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_error(self):
+        from backend.storage.hybrid_crud import HybridCRUD
+
+        crud = HybridCRUD(pg_crud=None)
+        crud._pg_available = True
+
+        async def failing(connection_type):
+            raise RuntimeError("db down")
+
+        crud._pg = type("FakePg", (), {"get_cameras_by_connection_type": staticmethod(failing)})()
+
+        result = await crud.get_cameras_by_connection_type("rtmp_push")
+        assert result == []

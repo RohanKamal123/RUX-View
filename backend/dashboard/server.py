@@ -233,12 +233,33 @@ async def lifespan(app: FastAPI):
             IntervalTrigger(minutes=5),
             id="db_pool_config_refresh",
         )
+        # Samples every connection_type="rtmp_push" camera and feeds any
+        # frame through the same session-merge/pipeline logic an HTTP
+        # motion trigger uses — see backend/core/ingest/rtmp_poller.py's
+        # module docstring for what this enables and its known
+        # single-instance-only limitation (in-memory session state isn't
+        # safe to poll from more than one Cloud Run instance at once).
+        from backend.core.ingest.rtmp_poller import poll_rtmp_cameras
+
+        async def _poll_rtmp_cameras_job():
+            await poll_rtmp_cameras(
+                hybrid_crud=hybrid_crud,
+                pipeline_v2=getattr(app.state, "pipeline_v2", None),
+                rtsp_base=settings.rtmp_ingest_rtsp_base,
+            )
+
+        scheduler.add_job(
+            _poll_rtmp_cameras_job,
+            IntervalTrigger(seconds=20),
+            id="rtmp_camera_poll",
+        )
         scheduler.start()
         app.state.scheduler = scheduler
         logger.info(
             "APScheduler started: daily_retention_cleanup (03:00), "
             "daily_digest (22:00), weekly_digest (Mon 08:00), "
-            "db_pool_config_refresh (every 5 min)"
+            "db_pool_config_refresh (every 5 min), "
+            "rtmp_camera_poll (every 20s)"
         )
     except Exception as sched_err:
         logger.error("Failed to start APScheduler jobs: %s", sched_err, exc_info=True)

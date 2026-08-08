@@ -202,6 +202,14 @@ async def receive_frame_trigger(
     After pipeline processing, updates the event record with the
     Gemini analysis result (threat_level, alert_message, person_ids).
 
+    Thin HTTP wrapper around process_camera_trigger() -- decodes the
+    request body and translates failures into an HTTPException. The
+    actual session-merge/pipeline logic lives in process_camera_trigger()
+    so backend/core/ingest/rtmp_poller.py's periodic rtmp_push camera
+    sampler can call the identical logic a connect/ agent's motion
+    trigger goes through, rather than duplicating (and inevitably
+    drifting from) it.
+
     Args:
         trigger_data: Validated FrameTriggerRequest with camera_id, image_base64, timestamp.
         user: Authenticated user dict from Firebase.
@@ -232,11 +240,70 @@ async def receive_frame_trigger(
             "error": "camera_id is required", "code": "VALIDATION_ERROR",
         })
 
-    confidence = trigger_data.confidence
+    pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
+    try:
+        return await process_camera_trigger(
+            camera_id=camera_id,
+            user_id=user_id,
+            location_id=location_id,
+            mode=mode,
+            jpeg_bytes=jpeg_bytes,
+            image_base64=image_base64,
+            timestamp=timestamp,
+            confidence=trigger_data.confidence,
+            crud=crud,
+            pipeline_v2=pipeline_v2,
+        )
+    except _TriggerProcessingError as e:
+        raise HTTPException(status_code=500, detail={
+            "error": str(e), "code": "STORAGE_ERROR",
+        })
+
+
+class _TriggerProcessingError(Exception):
+    """Raised by process_camera_trigger() on unrecoverable failure.
+
+    Kept FastAPI-agnostic (not HTTPException) so this function is equally
+    usable from the HTTP route and from a plain background poller
+    (backend/core/ingest/rtmp_poller.py) that has no request/response
+    cycle to raise an HTTP status code into.
+    """
+
+
+async def process_camera_trigger(
+    camera_id: str,
+    user_id: str,
+    location_id: str,
+    mode: str,
+    jpeg_bytes: Optional[bytes],
+    image_base64: str,
+    timestamp: str,
+    confidence: float,
+    crud: HybridCRUD,
+    pipeline_v2,
+) -> dict:
+    """Process one frame for one camera through session-merge + the AI
+    pipeline, and return the same response shape POST /api/triggers/frame
+    does.
+
+    This is the actual logic that used to live inline in
+    receive_frame_trigger() -- extracted so both the HTTP route and
+    backend/core/ingest/rtmp_poller.py's periodic rtmp_push sampler share
+    identical session-merge behavior (session creation/extension, the
+    YOLO-gate/no-change handling, threat escalation) instead of the poller
+    reimplementing it and inevitably drifting out of sync with the fixes
+    in test_session_merge.py.
+
+    Raises:
+        _TriggerProcessingError: on unrecoverable failure (mirrors the old
+            inline HTTPException(500) path).
+    """
     now = datetime.now(timezone.utc)
 
-    # Per-camera lock: serializes concurrent requests so only one
-    # request can be in the extend-vs-create decision block at a time.
+    # Per-camera lock: serializes concurrent callers (an HTTP trigger and
+    # a poller tick landing at the same time, or two overlapping poller
+    # ticks) so only one can be in the extend-vs-create decision block at
+    # a time.
     lock = _session_locks.setdefault(camera_id, asyncio.Lock())
     async with lock:
     # ── Session-based deduplication ──
@@ -274,7 +341,6 @@ async def receive_frame_trigger(
                 if jpeg_bytes is not None:
                     try:
                         # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
-                        pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
                         if pipeline_v2 is not None:
                             pipeline_result = await pipeline_v2.process_frame(
                                 camera_id=camera_id,
@@ -282,9 +348,7 @@ async def receive_frame_trigger(
                                 location_id=location_id,
                                 mode=mode,
                                 jpeg_bytes=jpeg_bytes,
-                                camera_profile=trigger_data.camera_profile
-                                               if hasattr(trigger_data, "camera_profile")
-                                               else None,
+                                camera_profile=None,
                             )
                             if not pipeline_result.change_detected:
                                 # A single frame with no YOLO-confirmed object (occlusion,
@@ -407,7 +471,6 @@ async def receive_frame_trigger(
             if jpeg_bytes is not None:
                 try:
                     # Try PipelineV2 first (YOLO gate + BoT-SORT + incident builder)
-                    pipeline_v2 = getattr(request.app.state, "pipeline_v2", None)
                     if pipeline_v2 is not None:
                         pipeline_result = await pipeline_v2.process_frame(
                             camera_id=camera_id,
@@ -415,9 +478,7 @@ async def receive_frame_trigger(
                             location_id=location_id,
                             mode=mode,
                             jpeg_bytes=jpeg_bytes,
-                            camera_profile=trigger_data.camera_profile
-                                           if hasattr(trigger_data, "camera_profile")
-                                           else None,
+                            camera_profile=None,
                         )
                         if not pipeline_result.change_detected and pipeline_result.skip_reason == "yolo_gate":
                             # No real object in frame — nothing to create or clean up.
@@ -519,9 +580,7 @@ async def receive_frame_trigger(
             # can start fresh instead of being silently absorbed.
             _active_sessions.pop(camera_id, None)
             reset_gemini_throttle(camera_id)
-            raise HTTPException(status_code=500, detail={
-                "error": str(e), "code": "STORAGE_ERROR",
-            })
+            raise _TriggerProcessingError(str(e)) from e
 
 
 @router.post("/audio",

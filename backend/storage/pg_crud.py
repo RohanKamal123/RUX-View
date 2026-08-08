@@ -423,6 +423,21 @@ class PostgresCRUD:
             )
             return list(result.scalars().all())
 
+    async def get_cameras_by_connection_type(self, connection_type: str) -> list[Camera]:
+        """Get all enabled cameras across all users with a given
+        connection_type -- used by backend/core/ingest/rtmp_poller.py to
+        enumerate every rtmp_push camera system-wide (a poller has no
+        request-scoped user_id to filter by, unlike every other camera
+        query in this class)."""
+        async with create_session() as session:
+            result = await session.execute(
+                select(Camera).where(
+                    Camera.connection_type == connection_type,
+                    Camera.enabled.is_(True),
+                )
+            )
+            return list(result.scalars().all())
+
     # ── Users ──────────────────────────────────────────────────────────────
 
     async def upsert_user(

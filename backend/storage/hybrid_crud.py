@@ -261,29 +261,44 @@ class HybridCRUD:
 
         raise RuntimeError("No storage backend available")
 
+    @staticmethod
+    def _map_pg_camera(c) -> Camera:
+        return Camera(
+            camera_id=c.id,
+            user_id=c.user_id,
+            name=c.name or "",
+            rtsp_url=c.rtsp_url or "",
+            mode=c.mode or "indoor",
+            is_active=c.enabled,
+            created_at=str(c.created_at) if c.created_at else "",
+            last_seen_at=str(c.created_at) if c.created_at else "",
+            connection_type=c.connection_type or "rtsp",
+            p2p_serial=c.p2p_serial or "",
+            p2p_username=c.p2p_username or "",
+            rtmp_stream_key=c.rtmp_stream_key or "",
+        )
+
     async def get_user_cameras(self, user_id: str) -> list[Camera]:
         """Get all cameras for a user."""
         if self._pg_available:
             try:
                 pg_cameras = await self._pg.get_user_cameras(user_id)
-                return [
-                    Camera(
-                        camera_id=c.id,
-                        user_id=c.user_id,
-                        name=c.name or "",
-                        rtsp_url=c.rtsp_url or "",
-                        mode=c.mode or "indoor",
-                        is_active=c.enabled,
-                        created_at=str(c.created_at) if c.created_at else "",
-                        last_seen_at=str(c.created_at) if c.created_at else "",
-                        connection_type=c.connection_type or "rtsp",
-                        p2p_serial=c.p2p_serial or "",
-                        p2p_username=c.p2p_username or "",
-                        rtmp_stream_key=c.rtmp_stream_key or "",
-                    ) for c in pg_cameras
-                ]
+                return [self._map_pg_camera(c) for c in pg_cameras]
             except Exception as e:
                 logger.error("PG camera list failed: %s", e)
+
+        return []
+
+    async def get_cameras_by_connection_type(self, connection_type: str) -> list[Camera]:
+        """Get all enabled cameras across all users with a given
+        connection_type -- used by backend/core/ingest/rtmp_poller.py's
+        periodic rtmp_push sampler, which has no request-scoped user_id."""
+        if self._pg_available:
+            try:
+                pg_cameras = await self._pg.get_cameras_by_connection_type(connection_type)
+                return [self._map_pg_camera(c) for c in pg_cameras]
+            except Exception as e:
+                logger.error("PG camera-by-connection-type list failed: %s", e)
 
         return []
 
