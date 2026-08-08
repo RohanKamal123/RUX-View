@@ -124,8 +124,8 @@ class VisionOSMessagingService : FirebaseMessagingService() {
                 enableVibration(true)
                 setSound(
                     android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
-                    android.app.AudioAttributes.Builder()
-                        .setUsage(android.app.AudioAttributes.USAGE_ALARM)
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
                         .build()
                 )
                 enableLights(true)

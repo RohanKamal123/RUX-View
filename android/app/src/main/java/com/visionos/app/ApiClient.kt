@@ -79,7 +79,9 @@ object FirebaseAuthTokenProvider {
         user.getIdToken(false)
             .addOnSuccessListener { tokenResult ->
                 cachedToken = tokenResult.token
-                tokenExpiry = tokenResult.expirationTimestampMillis
+                // GetTokenResult.expirationTimestamp is in SECONDS since
+                // epoch, not millis -- there's no ...Millis variant.
+                tokenExpiry = tokenResult.expirationTimestamp * 1000
                 result = cachedToken
                 semaphore.release()
             }

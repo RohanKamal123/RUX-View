@@ -34,7 +34,11 @@ fun LoginScreen(
         val currentUser = auth.currentUser
         if (currentUser != null) {
             currentUser.getIdToken(false).addOnSuccessListener { tokenResult ->
-                if (tokenResult != null && !tokenResult.isExpired) {
+                // GetTokenResult has no isExpired property -- compute it
+                // from expirationTimestamp (seconds since epoch).
+                val notExpired = tokenResult != null &&
+                    tokenResult.expirationTimestamp * 1000 > System.currentTimeMillis()
+                if (notExpired) {
                     onLoginSuccess()
                 }
             }
