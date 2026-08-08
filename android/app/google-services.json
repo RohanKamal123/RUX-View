@@ -1,26 +1,21 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "visionos-placeholder",
-    "storage_bucket": "visionos-placeholder.appspot.com"
+    "project_number": "504980287958",
+    "project_id": "visionos-platform",
+    "storage_bucket": "visionos-platform.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:504980287958:android:54941fa2d3ccfb9629b477",
         "android_client_info": {
           "package_name": "com.visionos.app"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "000000000000-placeholder.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "PLACEHOLDER_API_KEY_REPLACE_ME"
+          "current_key": "AIzaSyAEgt2wQEgMUsCR7xGaWeNONzk9Ax8AOsM"
         }
       ],
       "services": {
