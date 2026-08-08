@@ -78,6 +78,15 @@ spec:
               value: us-central1
             - name: VISION_OS_ENV
               value: production
+            # RTMP ingest (connection_type="rtmp_push" cameras) -- points at
+            # the MediaMTX VM in the visionos-platform GCP project (deliberately
+            # a different project than this Cloud Run service's rux-view-497104
+            # -- see backend/core/ingest/rtmp_ingest.py and android/SETUP.md).
+            # Not a secret, just a public IP; no auth on either port yet.
+            - name: RTMP_INGEST_PUSH_HOST
+              value: "35.193.96.82:1935"
+            - name: RTMP_INGEST_RTSP_BASE
+              value: "rtsp://35.193.96.82:8554"
           resources:
             limits:
               cpu: "2"
