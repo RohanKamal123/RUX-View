@@ -355,8 +355,21 @@ class PostgresCRUD:
         mode: Optional[str] = None,
         enabled: bool = True,
         tier_required: Optional[str] = None,
+        connection_type: Optional[str] = None,
+        rtsp_url: Optional[str] = None,
+        p2p_serial: Optional[str] = None,
+        p2p_username: Optional[str] = None,
+        p2p_password_encrypted: Optional[str] = None,
+        rtmp_stream_key: Optional[str] = None,
     ) -> Camera:
-        """Create or update a camera configuration."""
+        """Create or update a camera configuration.
+
+        rtsp_url/connection_type/p2p_* previously had no backing columns --
+        the caller-provided values were silently discarded here and every
+        camera's connection details were lost. p2p_password_encrypted must
+        already be encrypted (backend.core.crypto.encrypt_secret) -- this
+        layer never handles plaintext passwords.
+        """
         async with create_session() as session:
             result = await session.execute(
                 select(Camera).where(Camera.id == camera_id)
@@ -368,6 +381,18 @@ class PostgresCRUD:
                 cam.mode = mode or cam.mode
                 cam.enabled = enabled
                 cam.tier_required = tier_required or cam.tier_required
+                if connection_type is not None:
+                    cam.connection_type = connection_type
+                if rtsp_url is not None:
+                    cam.rtsp_url = rtsp_url
+                if p2p_serial is not None:
+                    cam.p2p_serial = p2p_serial
+                if p2p_username is not None:
+                    cam.p2p_username = p2p_username
+                if p2p_password_encrypted is not None:
+                    cam.p2p_password_encrypted = p2p_password_encrypted
+                if rtmp_stream_key is not None:
+                    cam.rtmp_stream_key = rtmp_stream_key
             else:
                 cam = Camera(
                     id=camera_id,
@@ -377,6 +402,12 @@ class PostgresCRUD:
                     mode=mode,
                     enabled=enabled,
                     tier_required=tier_required,
+                    connection_type=connection_type or "rtsp",
+                    rtsp_url=rtsp_url,
+                    p2p_serial=p2p_serial,
+                    p2p_username=p2p_username,
+                    p2p_password_encrypted=p2p_password_encrypted,
+                    rtmp_stream_key=rtmp_stream_key,
                 )
                 session.add(cam)
 

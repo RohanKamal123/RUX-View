@@ -46,6 +46,8 @@ def restore_hybrid_crud():
 class FakeCamera:
     def __init__(self, camera_id):
         self.camera_id = camera_id
+        self.connection_type = "rtsp"
+        self.rtmp_stream_key = ""
 
 
 class FakeCrud:
@@ -58,7 +60,9 @@ class FakeCrud:
     async def get_user_cameras(self, user_id):
         return self.existing
 
-    async def create_camera(self, user_id, name, rtsp_url="", mode="indoor"):
+    async def create_camera(self, user_id, name, rtsp_url="", mode="indoor",
+                             connection_type="rtsp", p2p_serial="",
+                             p2p_username="", p2p_password=""):
         self.create_camera_called = True
         new_cam = FakeCamera(f"CAM_{len(self.existing)}")
         self.existing.append(new_cam)

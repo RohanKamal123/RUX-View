@@ -55,6 +55,10 @@ class Camera:
     is_active: bool = True
     created_at: str = ""
     last_seen_at: str = ""
+    connection_type: str = "rtsp"
+    p2p_serial: str = ""
+    p2p_username: str = ""
+    rtmp_stream_key: str = ""
 
 
 @dataclass
@@ -194,13 +198,35 @@ class HybridCRUD:
     # ── Cameras ────────────────────────────────────────────────────────────
 
     async def create_camera(self, user_id: str, name: str,
-                             rtsp_url: str = "", mode: str = "indoor") -> Camera:
-        """Create a new camera."""
+                             rtsp_url: str = "", mode: str = "indoor",
+                             connection_type: str = "rtsp",
+                             p2p_serial: str = "", p2p_username: str = "",
+                             p2p_password: str = "") -> Camera:
+        """Create a new camera.
+
+        connection_type is "rtsp" (rtsp_url used directly) or "dahua_p2p"
+        (p2p_serial/p2p_username/p2p_password used instead -- same auth
+        model as the DMSS app, see backend/core/p2p/dahua_client.py).
+        p2p_password is encrypted here before it ever reaches storage --
+        callers (the API layer) must pass plaintext, this is the one
+        place it gets encrypted.
+        """
         if self._pg_available:
             try:
                 import uuid
+                from backend.core.crypto import encrypt_secret
+
                 camera_id = f"CAM_{uuid.uuid4().hex[:12].upper()}"
                 now = datetime.utcnow().isoformat()
+                p2p_password_encrypted = encrypt_secret(p2p_password) if p2p_password else None
+                # RTMP push cameras get a server-generated stream key --
+                # never user-supplied, since it doubles as the ingest
+                # server's auth (backend/core/ingest/rtmp_ingest.py): a
+                # push is only accepted if the key matches a known camera.
+                rtmp_stream_key = (
+                    f"{camera_id}_{uuid.uuid4().hex[:16]}"
+                    if connection_type == "rtmp_push" else None
+                )
                 pg_cam = await self._pg.upsert_camera(
                     camera_id=camera_id,
                     user_id=user_id,
@@ -208,16 +234,26 @@ class HybridCRUD:
                     name=name,
                     mode=mode,
                     enabled=True,
+                    connection_type=connection_type,
+                    rtsp_url=rtsp_url or None,
+                    p2p_serial=p2p_serial or None,
+                    p2p_username=p2p_username or None,
+                    p2p_password_encrypted=p2p_password_encrypted,
+                    rtmp_stream_key=rtmp_stream_key,
                 )
                 return Camera(
                     camera_id=pg_cam.id,
                     user_id=pg_cam.user_id,
                     name=pg_cam.name or name,
-                    rtsp_url=rtsp_url,
+                    rtsp_url=pg_cam.rtsp_url or "",
                     mode=pg_cam.mode or mode,
                     is_active=pg_cam.enabled,
                     created_at=str(pg_cam.created_at) if pg_cam.created_at else now,
                     last_seen_at=str(pg_cam.created_at) if pg_cam.created_at else now,
+                    connection_type=pg_cam.connection_type or "rtsp",
+                    p2p_serial=pg_cam.p2p_serial or "",
+                    p2p_username=pg_cam.p2p_username or "",
+                    rtmp_stream_key=pg_cam.rtmp_stream_key or "",
                 )
             except Exception as e:
                 logger.error("PG camera create failed: %s", e)
@@ -235,11 +271,15 @@ class HybridCRUD:
                         camera_id=c.id,
                         user_id=c.user_id,
                         name=c.name or "",
-                        rtsp_url="",
+                        rtsp_url=c.rtsp_url or "",
                         mode=c.mode or "indoor",
                         is_active=c.enabled,
                         created_at=str(c.created_at) if c.created_at else "",
                         last_seen_at=str(c.created_at) if c.created_at else "",
+                        connection_type=c.connection_type or "rtsp",
+                        p2p_serial=c.p2p_serial or "",
+                        p2p_username=c.p2p_username or "",
+                        rtmp_stream_key=c.rtmp_stream_key or "",
                     ) for c in pg_cameras
                 ]
             except Exception as e:

@@ -16,6 +16,17 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
+# Both ffmpeg subprocess calls below previously had no timeout at all --
+# _record_rtsp_clip() in particular connects over the network to a
+# customer-supplied rtsp_url, so an unreachable/slow-to-respond camera
+# (offline, network hiccup, DNS delay) would hang the call indefinitely
+# with no way to recover. Found via test_clips.py::test_clip_recording_
+# creates_valid_mp4 timing out once ffmpeg was actually installed in this
+# environment -- the test's "without ffmpeg this returns None" comment had
+# been silently relying on ffmpeg's absence rather than on this timeout
+# actually existing.
+FFMPEG_TIMEOUT_SEC = 30
+
 
 @dataclass
 class ClipResult:
@@ -170,7 +181,13 @@ class ClipRecorder:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            await process.communicate()
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=FFMPEG_TIMEOUT_SEC)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                logger.error(f"Thumbnail extraction timed out after {FFMPEG_TIMEOUT_SEC}s")
+                return None
 
             if os.path.exists(thumbnail_path):
                 return thumbnail_path
@@ -266,7 +283,18 @@ class ClipRecorder:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=FFMPEG_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                logger.error(
+                    f"RTSP recording timed out after {FFMPEG_TIMEOUT_SEC}s "
+                    f"(camera unreachable or too slow to respond): {rtsp_url}"
+                )
+                return False
 
             if process.returncode != 0:
                 logger.error(f"ffmpeg failed: {stderr.decode()}")

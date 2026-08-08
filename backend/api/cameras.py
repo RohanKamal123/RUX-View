@@ -8,6 +8,7 @@ Uses HybridCRUD which falls back to PostgreSQL when MEGA.nz is unavailable.
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.config import settings
 from backend.core.camera_limits import CameraLimits
 from backend.core.config_store import get_max_cameras
 from backend.dashboard.auth import get_current_user
@@ -17,6 +18,17 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 # Global HybridCRUD instance (initialized in server.py)
 hybrid_crud: HybridCRUD = None  # type: ignore
+
+
+def _rtmp_push_url(stream_key: str) -> str:
+    """Build the rtmp:// URL a DVR should be configured to push to.
+
+    settings.rtmp_ingest_push_host currently points at a local dev
+    MediaMTX instance -- see backend/core/ingest/rtmp_ingest.py's module
+    docstring for the (verified, working) design and what's still needed
+    to run this against a real always-on host.
+    """
+    return f"rtmp://{settings.rtmp_ingest_push_host}/live/{stream_key}"
 
 
 def get_crud() -> HybridCRUD:
@@ -68,6 +80,10 @@ async def list_cameras(
             "mode": c.mode,
             "enabled": c.is_active,
             "rtsp_url": c.rtsp_url,
+            "connection_type": c.connection_type,
+            "p2p_serial": c.p2p_serial,
+            "p2p_username": c.p2p_username,
+            "rtmp_push_url": _rtmp_push_url(c.rtmp_stream_key) if c.rtmp_stream_key else None,
             "created_at": c.created_at,
             "last_seen_at": c.last_seen_at,
         } for c in cameras],
@@ -111,11 +127,24 @@ async def add_camera(
     name = camera_data.get("name", "Camera")
     rtsp_url = camera_data.get("rtsp_url", "")
     mode = camera_data.get("mode", "indoor")
+    connection_type = camera_data.get("connection_type", "rtsp")
+    p2p_serial = camera_data.get("p2p_serial", "")
+    p2p_username = camera_data.get("p2p_username", "")
+    p2p_password = camera_data.get("p2p_password", "")
 
     if not name:
         raise HTTPException(status_code=422, detail={
             "error": "Camera name is required", "code": "VALIDATION_ERROR",
         })
+
+    if connection_type not in ("rtsp", "dahua_p2p", "rtmp_push"):
+        raise HTTPException(status_code=422, detail={
+            "error": "connection_type must be 'rtsp', 'rtmp_push', or 'dahua_p2p'", "code": "VALIDATION_ERROR",
+        })
+    # Connection details (rtsp_url, or p2p_serial/username/password) are
+    # intentionally NOT required here -- a camera can be created as a bare
+    # placeholder (name only) and have connection details filled in later,
+    # matching pre-existing behavior where rtsp_url was always optional.
 
     try:
         # Check the limit BEFORE creating — create_camera() itself has no
@@ -145,11 +174,17 @@ async def add_camera(
             name=name,
             rtsp_url=rtsp_url,
             mode=mode,
+            connection_type=connection_type,
+            p2p_serial=p2p_serial,
+            p2p_username=p2p_username,
+            p2p_password=p2p_password,
         )
         quota = await crud.get_camera_quota(user_id)
         return {
             "id": camera.camera_id,
             "status": "created",
+            "connection_type": camera.connection_type,
+            "rtmp_push_url": _rtmp_push_url(camera.rtmp_stream_key) if camera.rtmp_stream_key else None,
             "quota": {
                 "current": quota.total_cameras,
                 "max": quota.max_cameras,
@@ -235,6 +270,10 @@ async def get_camera(
                 "mode": c.mode,
                 "enabled": c.is_active,
                 "rtsp_url": c.rtsp_url,
+                "connection_type": c.connection_type,
+                "p2p_serial": c.p2p_serial,
+                "p2p_username": c.p2p_username,
+                "rtmp_push_url": _rtmp_push_url(c.rtmp_stream_key) if c.rtmp_stream_key else None,
                 "created_at": c.created_at,
                 "last_seen_at": c.last_seen_at,
             }

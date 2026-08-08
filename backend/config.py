@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     google_cloud_project: str = ""
     google_cloud_region: str = "asia-south1"
 
+    # ── RTMP ingest (connection_type="rtmp_push" cameras) ──────
+    # MediaMTX (or equivalent) media server host -- a separate always-on
+    # host from Cloud Run, since RTMP ingest is a persistent-connection
+    # workload. See backend/core/ingest/rtmp_ingest.py. Not yet deployed
+    # anywhere real -- these defaults point at a local dev instance.
+    rtmp_ingest_push_host: str = "localhost:1935"  # what the DVR pushes to
+    rtmp_ingest_rtsp_base: str = "rtsp://localhost:8554"  # what the backend samples from
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

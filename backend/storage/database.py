@@ -257,6 +257,29 @@ class Camera(Base):
     mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     tier_required: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # connection_type: "rtsp" (plain RTSP/ONVIF URL, phone/backend must be
+    # able to reach it directly), "rtmp_push" (DVR pushes OUT to our media
+    # server -- no port forwarding, no proprietary protocol, works across
+    # Hikvision/Dahua/Uniview/XMEye-OEM DVRs that support "Platform
+    # Access"/RTMP in their menu -- see backend/core/ingest/), or
+    # "dahua_p2p" (P2P cloud relay via serial number, same auth model as
+    # the DMSS app, fallback for DVRs with no RTMP push option -- see
+    # backend/core/p2p/dahua_client.py). rtsp_url previously had no
+    # backing column at all: the mobile/API add-camera flow accepted it
+    # but pg_crud.upsert_camera() silently discarded it, so every camera's
+    # RTSP URL was lost on creation and always read back empty.
+    connection_type: Mapped[str] = mapped_column(String(20), default="rtsp")
+    rtsp_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    p2p_serial: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    p2p_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Encrypted via backend.core.crypto.encrypt_secret -- never stored or
+    # returned as plaintext. See backend/core/crypto.py.
+    p2p_password_encrypted: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Unique per-camera RTMP stream key the DVR is configured to push to
+    # (rtmp://<ingest-host>/live/{rtmp_stream_key}) -- generated server-side
+    # at camera-creation time, not user-supplied. Doubles as auth: the
+    # ingest server only accepts a push if the key matches a known camera.
+    rtmp_stream_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
     gemma_cooldown_sec: Mapped[int] = mapped_column(Integer, default=15)
     ignore_zones_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     shop_hours_open: Mapped[Optional[time]] = mapped_column(Time, nullable=True)

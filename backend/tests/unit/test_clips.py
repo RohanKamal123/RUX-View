@@ -1,5 +1,6 @@
 """Tests for clip recording and playback modules."""
 
+import asyncio
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -128,6 +129,63 @@ class TestClipRecorder:
         """Test that file size is returned as int."""
         size = clip_recorder._get_file_size("/tmp/nonexistent.mp4")
         assert isinstance(size, int)
+
+
+class TestClipRecorderTimeout:
+    """_record_rtsp_clip()/extract_thumbnail() previously called
+    process.communicate() with no timeout at all -- an unreachable or
+    slow-to-respond camera (offline, network hiccup, DNS delay) would hang
+    the ffmpeg subprocess call indefinitely. Uses a tiny timeout override
+    so these run in milliseconds rather than waiting out the real 30s
+    FFMPEG_TIMEOUT_SEC default (test_clip_recording_creates_valid_mp4
+    above exercises the real default against an actually-unreachable
+    rtsp://example.com/stream, which is why that one test takes ~30s)."""
+
+    @pytest.mark.asyncio
+    async def test_record_rtsp_clip_returns_false_on_timeout_not_hang(self, clip_recorder):
+        never_resolves = asyncio.Event()
+
+        async def hang_forever(*args, **kwargs):
+            await never_resolves.wait()
+
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(side_effect=hang_forever)
+        mock_process.kill = MagicMock()
+        mock_process.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)), \
+             patch("backend.storage.clip_recorder.FFMPEG_TIMEOUT_SEC", 0.05):
+            result = await clip_recorder._record_rtsp_clip(
+                rtsp_url="rtsp://unreachable.example/stream",
+                output_path="/tmp/test_clip_timeout.mp4",
+                start_time=0.0,
+                end_time=30.0,
+            )
+
+        assert result is False
+        mock_process.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_extract_thumbnail_returns_none_on_timeout_not_hang(self, clip_recorder):
+        never_resolves = asyncio.Event()
+
+        async def hang_forever(*args, **kwargs):
+            await never_resolves.wait()
+
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(side_effect=hang_forever)
+        mock_process.kill = MagicMock()
+        mock_process.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_process)), \
+             patch("backend.storage.clip_recorder.FFMPEG_TIMEOUT_SEC", 0.05):
+            result = await clip_recorder.extract_thumbnail(
+                clip_path="/tmp/test_clip.mp4",
+                timestamp_seconds=15.0,
+            )
+
+        assert result is None
+        mock_process.kill.assert_called_once()
 
 
 class TestClipPlayer:
