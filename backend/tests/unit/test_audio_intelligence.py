@@ -243,10 +243,10 @@ class TestAudioCorrelator:
                 yamnet_result=sample_yamnet_speech,
             )
 
-            # Speech with 0.92 confidence should trigger transcription
-            # (but only if after hours or HIGH threat — speech alone is LOW)
-            # Since it's business hours and speech is LOW, should NOT transcribe
-            mock_transcribe.assert_not_called()
+            # _should_transcribe's "Speech with confidence > 0.8" rule isn't
+            # gated on business hours (see its docstring) -- 0.92 confidence
+            # speech should transcribe here regardless of time of day.
+            mock_transcribe.assert_called_once_with(b"fake_audio_data")
 
     @pytest.mark.asyncio
     async def test_groq_transcription_after_hours(
