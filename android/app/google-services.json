@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "504980287958-ge4qt03b90dj8mlbamv194lt89p57d50.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.visionos.app",
+            "certificate_hash": "6d7dce2ef2bb67407925913cdcdf06237f14e053"
+          }
+        },
+        {
           "client_id": "504980287958-rejqoqcjdgjjav2hehtrm3pnjitlnhth.apps.googleusercontent.com",
           "client_type": 3
         }
