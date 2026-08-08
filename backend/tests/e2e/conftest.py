@@ -33,6 +33,34 @@ def staging_url() -> str:
     return STAGING_URL
 
 
+def _staging_server_reachable(url: str, timeout: float = 2.0) -> bool:
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            client.get(f"{url}/health")
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _skip_if_no_staging_server(staging_url: str) -> None:
+    """Skip the whole e2e suite cleanly when its target isn't reachable.
+
+    These are smoke tests against a real running server (STAGING_URL, or
+    localhost:8000 by default) -- every test makes real HTTP calls, so
+    there's no meaningful way to run them without one. Without this check
+    they fail one-by-one with raw httpx.ConnectError tracebacks instead of
+    a single clear reason.
+    """
+    if not _staging_server_reachable(staging_url):
+        pytest.skip(
+            f"e2e suite requires a reachable server at {staging_url} "
+            "(run `uvicorn backend.dashboard.server:app --port 8000` or "
+            "set STAGING_URL) -- none found, skipping.",
+            allow_module_level=True,
+        )
+
+
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """Create an async HTTP client for testing.

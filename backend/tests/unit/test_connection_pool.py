@@ -169,7 +169,11 @@ async def test_execute_with_retry_succeeds(manager, mock_pool):
 async def test_execute_with_retry_fails_after_max(manager, mock_pool):
     """execute_with_retry should raise after exhausting retries."""
     mock_conn = AsyncMock()
-    mock_conn.fetch = AsyncMock(side_effect=Exception("DB down"))
+    # OSError, not a bare Exception: execute_with_retry only retries
+    # (asyncpg.PostgresError, OSError, asyncio.TimeoutError) -- connection-
+    # level failures -- and deliberately lets other exceptions (e.g. a
+    # query syntax error) propagate immediately without retrying.
+    mock_conn.fetch = AsyncMock(side_effect=OSError("DB down"))
     mock_pool.acquire = AsyncMock(return_value=mock_conn)
 
     with patch("asyncpg.create_pool", new_callable=AsyncMock, return_value=mock_pool):
@@ -184,7 +188,12 @@ async def test_execute_in_transaction_commits(manager, mock_pool):
     """execute_in_transaction should commit all queries."""
     mock_conn = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=[{"ok": True}])
-    mock_conn.transaction = AsyncMock()
+    # MagicMock, not AsyncMock: asyncpg's conn.transaction() is a *sync*
+    # call that returns an async-context-manager object directly (used via
+    # `async with conn.transaction():`) -- AsyncMock would make the call
+    # itself a coroutine, which isn't awaited at the call site and breaks
+    # the `async with`.
+    mock_conn.transaction = MagicMock()
 
     class FakeTransaction:
         async def __aenter__(self):
@@ -216,7 +225,12 @@ async def test_execute_in_transaction_rolls_back_on_error(manager, mock_pool):
     mock_conn.fetch = AsyncMock(
         side_effect=[Exception("Query failed")]
     )
-    mock_conn.transaction = AsyncMock()
+    # MagicMock, not AsyncMock: asyncpg's conn.transaction() is a *sync*
+    # call that returns an async-context-manager object directly (used via
+    # `async with conn.transaction():`) -- AsyncMock would make the call
+    # itself a coroutine, which isn't awaited at the call site and breaks
+    # the `async with`.
+    mock_conn.transaction = MagicMock()
 
     class FakeTransaction:
         async def __aenter__(self):

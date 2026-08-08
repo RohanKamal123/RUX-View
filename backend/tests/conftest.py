@@ -4,8 +4,12 @@ import pytest
 import os
 
 # ── Test Environment ─────────────────────────────────────────
-# Use test environment variables
-os.environ["ENVIRONMENT"] = "test"
+# Use test environment variables. "development" (not "test") because
+# backend/dashboard/auth.py's dev-mode Firebase bypass only recognizes
+# "development" -- the codebase has no separate "test" environment
+# concept, so setting anything else here made auth fall through to the
+# production path (which requires real Firebase creds) for every test.
+os.environ["ENVIRONMENT"] = "development"
 os.environ["DATABASE_URL"] = (
     "postgresql+asyncpg://postgres:postgres@localhost:5432/visionos_test"
 )
