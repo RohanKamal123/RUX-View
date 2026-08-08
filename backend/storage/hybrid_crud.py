@@ -289,6 +289,52 @@ class HybridCRUD:
 
         return []
 
+    async def update_camera(self, camera_id: str, user_id: str, updates: dict) -> Camera:
+        """Update a camera's name/mode/enabled fields.
+
+        Ownership is enforced by the caller (backend/api/cameras.py checks
+        the camera is in the user's own list before calling this) -- this
+        just delegates to upsert_camera's existing-row update path.
+        """
+        if self._pg_available:
+            try:
+                if "enabled" not in updates:
+                    # upsert_camera's update path always overwrites `enabled`
+                    # (unlike name/mode, it has no "or existing value"
+                    # fallback) -- look the current value up first so a
+                    # name-only update doesn't silently re-enable a
+                    # disabled camera.
+                    current = await self.get_user_cameras(user_id)
+                    existing = next((c for c in current if c.camera_id == camera_id), None)
+                    updates = {**updates, "enabled": existing.is_active if existing else True}
+                pg_cam = await self._pg.upsert_camera(
+                    camera_id=camera_id,
+                    user_id=user_id,
+                    location_id="default",
+                    name=updates.get("name"),
+                    mode=updates.get("mode"),
+                    enabled=updates.get("enabled", True),
+                    connection_type=updates.get("connection_type"),
+                    rtsp_url=updates.get("rtsp_url"),
+                )
+                return self._map_pg_camera(pg_cam)
+            except Exception as e:
+                logger.error("PG camera update failed: %s", e)
+                raise RuntimeError(f"No storage backend available: {e}") from e
+
+        raise RuntimeError("No storage backend available")
+
+    async def delete_camera(self, camera_id: str, user_id: str) -> bool:
+        """Delete a camera owned by user_id. Returns False if not found/not owned."""
+        if self._pg_available:
+            try:
+                return await self._pg.delete_camera(camera_id, user_id)
+            except Exception as e:
+                logger.error("PG camera delete failed: %s", e)
+                raise RuntimeError(f"No storage backend available: {e}") from e
+
+        raise RuntimeError("No storage backend available")
+
     async def get_cameras_by_connection_type(self, connection_type: str) -> list[Camera]:
         """Get all enabled cameras across all users with a given
         connection_type -- used by backend/core/ingest/rtmp_poller.py's

@@ -278,6 +278,10 @@ async def get_current_user(
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() == "bearer" and token:
             return await verify_token(token)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format (expected 'Bearer <token>')",
+        )
 
     # ── Fall back to session cookie ───────────────────────────
     if request is not None:

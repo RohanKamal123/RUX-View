@@ -282,6 +282,87 @@ async def get_camera(
     })
 
 
+@router.put("/{camera_id}",
+    summary="Update a camera",
+    description="Updates name/mode/enabled/rtsp_url for a camera owned by the authenticated user.",
+    tags=["Cameras"],
+    responses={
+        200: {"description": "Camera updated successfully"},
+        401: {"description": "Missing or invalid Firebase token"},
+        404: {"description": "Camera not found"},
+        500: {"description": "Storage error"},
+    },
+)
+async def update_camera(
+    camera_id: str,
+    updates: dict,
+    user: dict = Depends(get_current_user),
+    crud: HybridCRUD = Depends(get_crud),
+):
+    """Update a camera owned by the authenticated user.
+
+    Raises:
+        HTTPException 404: If the camera doesn't exist or isn't owned by this user.
+    """
+    user_id = user.get("uid", "anonymous")
+    owned = await crud.get_user_cameras(user_id)
+    if not any(c.camera_id == camera_id for c in owned):
+        raise HTTPException(status_code=404, detail={
+            "error": f"Camera {camera_id} not found", "code": "NOT_FOUND",
+        })
+
+    try:
+        camera = await crud.update_camera(camera_id, user_id, updates)
+        return {
+            "status": "updated",
+            "camera_id": camera.camera_id,
+            "name": camera.name,
+            "mode": camera.mode,
+            "enabled": camera.is_active,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={
+            "error": str(e), "code": "STORAGE_ERROR",
+        })
+
+
+@router.delete("/{camera_id}",
+    summary="Delete a camera",
+    description="Removes a camera owned by the authenticated user.",
+    tags=["Cameras"],
+    responses={
+        200: {"description": "Camera deleted successfully"},
+        401: {"description": "Missing or invalid Firebase token"},
+        404: {"description": "Camera not found"},
+        500: {"description": "Storage error"},
+    },
+)
+async def delete_camera(
+    camera_id: str,
+    user: dict = Depends(get_current_user),
+    crud: HybridCRUD = Depends(get_crud),
+):
+    """Delete a camera owned by the authenticated user.
+
+    Raises:
+        HTTPException 404: If the camera doesn't exist or isn't owned by this user.
+    """
+    user_id = user.get("uid", "anonymous")
+    try:
+        deleted = await crud.delete_camera(camera_id, user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={
+            "error": str(e), "code": "STORAGE_ERROR",
+        })
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail={
+            "error": f"Camera {camera_id} not found", "code": "NOT_FOUND",
+        })
+
+    return {"status": "deleted", "camera_id": camera_id}
+
+
 @router.get("/{camera_id}/events",
     summary="Get events for a specific camera",
     description="Returns events (motion and audio triggers) for a specific camera, ordered by creation time. "

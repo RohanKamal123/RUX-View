@@ -423,6 +423,22 @@ class PostgresCRUD:
             )
             return list(result.scalars().all())
 
+    async def delete_camera(self, camera_id: str, user_id: str) -> bool:
+        """Delete a camera, scoped to its owner. Returns True if a row was
+        deleted, False if no camera with that id/user_id pair exists."""
+        async with create_session() as session:
+            result = await session.execute(
+                select(Camera).where(
+                    Camera.id == camera_id, Camera.user_id == user_id
+                )
+            )
+            cam = result.scalar_one_or_none()
+            if cam is None:
+                return False
+            await session.delete(cam)
+            await session.flush()
+            return True
+
     async def get_cameras_by_connection_type(self, connection_type: str) -> list[Camera]:
         """Get all enabled cameras across all users with a given
         connection_type -- used by backend/core/ingest/rtmp_poller.py to

@@ -259,8 +259,8 @@ async def answer_question(question: str, user_id: str, tier: str, crud) -> Query
     """
     if tier == "free":
         return QueryAgentResult(
-            answer="Natural language queries are available on Household and "
-                   "Business tiers. Please upgrade to use this feature.",
+            answer="Natural language queries are available on Guard and "
+                   "Guard Pro tiers. Please upgrade to use this feature.",
             error="free_tier_blocked",
         )
 

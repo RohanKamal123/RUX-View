@@ -68,9 +68,21 @@ def valid_user_dict() -> dict:
     return {
         "uid": "test-user-123",
         "email": "test@example.com",
-        "tier": "household",
+        "tier": "guard",
         "subscription_active": True,
     }
+
+
+@pytest.fixture
+def production_mode(monkeypatch):
+    """Force settings.environment away from "development" for the duration
+    of a test, so verify_token() actually reaches the Firebase/_firebase_available
+    path these "production mode" tests simulate, instead of short-circuiting
+    into the dev-mode bypass.
+    """
+    import backend.dashboard.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod.settings, "environment", "production")
 
 
 # ── Test: init_firebase ───────────────────────────────────────
@@ -124,7 +136,7 @@ async def test_dev_mode_ignores_invalid_tokens():
 
 
 @pytest.mark.asyncio
-async def test_valid_token_passes(mock_firebase_auth, valid_token, valid_user_dict):
+async def test_valid_token_passes(production_mode, mock_firebase_auth, valid_token, valid_user_dict):
     """Test that a valid Firebase token returns user info in production mode."""
     import backend.dashboard.auth as auth_mod
 
@@ -134,7 +146,7 @@ async def test_valid_token_passes(mock_firebase_auth, valid_token, valid_user_di
         "uid": "test-user-123",
         "email": "test@example.com",
         "claims": {
-            "tier": "household",
+            "tier": "guard",
             "subscription_active": True,
         },
     }
@@ -142,12 +154,12 @@ async def test_valid_token_passes(mock_firebase_auth, valid_token, valid_user_di
     result = await auth_mod.verify_token(valid_token)
     assert result["uid"] == "test-user-123"
     assert result["email"] == "test@example.com"
-    assert result["tier"] == "household"
+    assert result["tier"] == "guard"
     assert result["subscription_active"] is True
 
 
 @pytest.mark.asyncio
-async def test_invalid_token_rejected(mock_firebase_auth):
+async def test_invalid_token_rejected(production_mode, mock_firebase_auth):
     """Test that an invalid token raises HTTPException 401 in production mode."""
     import backend.dashboard.auth as auth_mod
 
@@ -160,7 +172,7 @@ async def test_invalid_token_rejected(mock_firebase_auth):
 
 
 @pytest.mark.asyncio
-async def test_expired_token_rejected(mock_firebase_auth):
+async def test_expired_token_rejected(production_mode, mock_firebase_auth):
     """Test that an expired token raises HTTPException 401 in production mode."""
     import backend.dashboard.auth as auth_mod
 
@@ -173,7 +185,7 @@ async def test_expired_token_rejected(mock_firebase_auth):
 
 
 @pytest.mark.asyncio
-async def test_token_without_claims_defaults_free(mock_firebase_auth):
+async def test_token_without_claims_defaults_free(production_mode, mock_firebase_auth):
     """Test that a token without custom claims defaults to free tier in production."""
     import backend.dashboard.auth as auth_mod
 
@@ -228,11 +240,11 @@ async def test_get_current_user_empty_token():
 
 
 @pytest.mark.asyncio
-async def test_tier_check_household_allowed(valid_user_dict):
-    """Test that a household-tier user can access household routes."""
+async def test_tier_check_guard_allowed(valid_user_dict):
+    """Test that a guard-tier user can access guard-gated routes."""
     from backend.dashboard.auth import require_tier
 
-    @require_tier("household")
+    @require_tier("guard")
     async def dummy_route(user: dict = None):
         return {"success": True}
 
@@ -241,11 +253,11 @@ async def test_tier_check_household_allowed(valid_user_dict):
 
 
 @pytest.mark.asyncio
-async def test_tier_check_business_allowed():
-    """Test that a business-tier user can access business routes."""
+async def test_tier_check_guard_pro_allowed():
+    """Test that a guard_pro-tier user can access guard_pro-gated routes."""
     from backend.dashboard.auth import require_tier
 
-    @require_tier("business")
+    @require_tier("guard_pro")
     async def dummy_route(user: dict = None):
         return {"success": True}
 
@@ -253,7 +265,7 @@ async def test_tier_check_business_allowed():
         user={
             "uid": "biz-user",
             "email": "biz@example.com",
-            "tier": "business",
+            "tier": "guard_pro",
             "subscription_active": True,
         }
     )
@@ -262,10 +274,10 @@ async def test_tier_check_business_allowed():
 
 @pytest.mark.asyncio
 async def test_free_tier_blocked_premium_route():
-    """Test that a free-tier user is blocked from household routes."""
+    """Test that a free-tier user is blocked from guard-gated routes."""
     from backend.dashboard.auth import require_tier
 
-    @require_tier("household")
+    @require_tier("guard")
     async def premium_route(user: dict = None):
         return {"success": True}
 
@@ -283,20 +295,20 @@ async def test_free_tier_blocked_premium_route():
 
 
 @pytest.mark.asyncio
-async def test_household_blocked_business_route():
-    """Test that a household-tier user is blocked from business routes."""
+async def test_guard_blocked_guard_pro_route():
+    """Test that a guard-tier user is blocked from guard_pro-gated routes."""
     from backend.dashboard.auth import require_tier
 
-    @require_tier("business")
+    @require_tier("guard_pro")
     async def business_route(user: dict = None):
         return {"success": True}
 
     with pytest.raises(HTTPException) as exc_info:
         await business_route(
             user={
-                "uid": "household-user",
-                "email": "household@example.com",
-                "tier": "household",
+                "uid": "guard-user",
+                "email": "guard@example.com",
+                "tier": "guard",
                 "subscription_active": True,
             }
         )
@@ -308,7 +320,7 @@ async def test_require_tier_no_user():
     """Test that require_tier raises 401 when no user is provided."""
     from backend.dashboard.auth import require_tier
 
-    @require_tier("household")
+    @require_tier("guard")
     async def protected_route(user: dict = None):
         return {"success": True}
 

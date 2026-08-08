@@ -33,6 +33,14 @@ def mock_db_session():
     """Create a mock async database session."""
     session = AsyncMock()
     session.execute = AsyncMock()
+    # session.execute() is awaited, but the CursorResult it returns has
+    # sync methods (fetchone(), scalar_one_or_none(), ...). Left implicit,
+    # unittest.mock propagates AsyncMock-ness to auto-created children of
+    # an AsyncMock, so .fetchone() would itself return an unawaited
+    # coroutine instead of a row. Forcing this one level to a plain
+    # MagicMock keeps everything built on top of it (.fetchone,
+    # .scalar_one_or_none) synchronous, matching the real object.
+    session.execute.return_value = MagicMock()
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     return session
@@ -314,10 +322,11 @@ class TestAudioCorrelator:
         assert correlator._should_transcribe(yamnet, is_after_hours=False) is True
 
     def test_should_transcribe_speech_high_confidence(self, correlator):
-        """Should transcribe speech with high confidence during business hours."""
+        """Should transcribe speech with high confidence, any time of day."""
         yamnet = {"class_name": "Speech", "confidence": 0.92}
-        # Speech alone is LOW threat, so during business hours should NOT transcribe
-        assert correlator._should_transcribe(yamnet, is_after_hours=False) is False
+        # _should_transcribe's "Speech with high confidence" rule (>0.8)
+        # isn't gated on business hours -- see its docstring.
+        assert correlator._should_transcribe(yamnet, is_after_hours=False) is True
 
     def test_get_neighbour_cameras(self, correlator):
         """Should return neighbour cameras from topology."""
