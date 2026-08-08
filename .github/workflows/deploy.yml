@@ -76,8 +76,8 @@ jobs:
           context: .
           push: true
           tags: |
-            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.tag.outputs.IMAGE_TAG }}
-            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.git.outputs.SHA }}
+            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/visionos-backend:${{ steps.tag.outputs.IMAGE_TAG }}
+            us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/visionos-backend:${{ steps.git.outputs.SHA }}
 
   deploy:
     name: Deploy to Cloud Run
@@ -115,14 +115,14 @@ jobs:
       - name: Deploy to Cloud Run
         id: deploy
         run: |
-          gcloud run deploy vision-os \
-            --image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/vision-os:${{ steps.tag.outputs.IMAGE_TAG }} \
+          gcloud run deploy visionos-backend \
+            --image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/visionos-backend:${{ steps.tag.outputs.IMAGE_TAG }} \
             --platform=managed \
             --region=us-central1 \
             --allow-unauthenticated \
             --revision-suffix=${{ steps.git.outputs.SHA }} \
             --quiet
-          echo "service_url=$(gcloud run services describe vision-os --platform=managed --region=us-central1 --format='value(status.url)')" >> $GITHUB_OUTPUT
+          echo "service_url=$(gcloud run services describe visionos-backend --platform=managed --region=us-central1 --format='value(status.url)')" >> $GITHUB_OUTPUT
 
   smoke:
     name: Smoke Test

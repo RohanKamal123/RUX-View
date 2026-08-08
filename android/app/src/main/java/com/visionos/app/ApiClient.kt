@@ -15,8 +15,11 @@ import java.util.concurrent.TimeUnit
  */
 object ApiClient {
 
-    // ── Production Cloud Run URL ──────────────────────────────
-    private const val BASE_URL = "https://visionos-1004956364101.asia-south1.run.app/"
+    // ── Production Cloud Run URL (service: visionos-backend, us-central1,
+    //    project rux-view-497104 -- the only live backend as of the Aug 2026
+    //    consolidation; two other stale services, vision-os and visionos,
+    //    were deleted for leaking real credentials in plaintext env vars) ──
+    private const val BASE_URL = "https://visionos-backend-1004956364101.us-central1.run.app/"
 
     private val authInterceptor = Interceptor { chain ->
         val original = chain.request()

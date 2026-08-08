@@ -76,7 +76,7 @@ echo "Git commit SHA: $GIT_SHA"
 PROJECT_ID="rux-view-497104"
 REGION="us-central1"
 IMAGE_NAME="gcr.io/$PROJECT_ID/visionos:$TAG"
-SERVICE_NAME="visionos"
+SERVICE_NAME="visionos-backend"
 
 # Function to run tests
 run_tests() {

@@ -1,97 +1,82 @@
-# Vision OS — Cloud Run Configuration
-# Auto-scaling setup for AI-powered CCTV intelligence platform
-# Region: us-central1 (Iowa) — primary deployment region
+# Vision OS — Cloud Run Configuration (reference)
+#
+# Documents the actual live configuration of the `visionos-backend` service
+# in project rux-view-497104, region us-central1 -- the ONLY production
+# backend as of the Aug 2026 consolidation. Two other services (`vision-os`,
+# `visionos`) existed in the same project with stale/duplicate config and
+# were deleted; see git history around that date for why.
+#
+# NOTE: infrastructure/deploy.sh and .github/workflows/deploy.yml do NOT
+# read this file -- they call `gcloud run deploy` directly, which preserves
+# whatever env vars/secrets are already set on the service. This file is
+# documentation of that live state, not something applied automatically.
+# If you change the live service's config (via gcloud or the console),
+# update this file to match, or it'll drift again.
 
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: vision-os-api
+  name: visionos-backend
   annotations:
     run.googleapis.com/ingress: all
-    run.googleapis.com/ingress-status: all
-    run.googleapis.com/launch-stage: stable
 spec:
   template:
     metadata:
       annotations:
         autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "10"
-        autoscaling.knative.dev/target: "80"
-        run.googleapis.com/cpu-throttling: "false"
+        autoscaling.knative.dev/maxScale: "20"
         run.googleapis.com/startup-cpu-boost: "true"
-        run.googleapis.com/vpc-access-egress: "private-ranges-only"
-        run.googleapis.com/client-name: "vision-os"
     spec:
-      containerConcurrency: 80
+      containerConcurrency: 1
       timeoutSeconds: 300
-      serviceAccountName: vision-os-api-sa
-      # VPC connector for secure Cloud SQL access via private IP
-      vpcAccess:
-        connector: vision-os-vpc-connector
-        egress: private-ranges-only
-      volumes:
-        - name: cloud-sql-proxy
-          emptyDir:
-            sizeLimit: 1Gi
+      serviceAccountName: 1004956364101-compute@developer.gserviceaccount.com
       containers:
-        - image: gcr.io/vision-os/vision-os-api:latest
+        - image: gcr.io/rux-view-497104/visionos-backend
           ports:
             - containerPort: 8080
           env:
-            # Database
+            # Neon Postgres (not Cloud SQL -- direct asyncpg connection over
+            # the internet with ssl=require)
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: cloud-sql-credentials
-                  key: database_url
-            # Application secrets
+                  name: backend-database-url
+                  key: latest
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: api-secrets
-                  key: secret_key
-            # AI services
+                  name: backend-secret-key
+                  key: latest
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: backend-telegram-bot-token
+                  key: latest
+            - name: TELEGRAM_CHAT_ID
+              value: "5864090871"
+            - name: UPSTASH_REDIS_REST_URL
+              value: "https://civil-ox-146786.upstash.io"
+            - name: UPSTASH_REDIS_REST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: backend-upstash-redis-token
+                  key: latest
             - name: GOOGLE_CLOUD_PROJECT
               value: rux-view-497104
             - name: GOOGLE_CLOUD_REGION
               value: us-central1
-            - name: GROQ_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ai-service-keys
-                  key: groq_api_key
-            # Notification services
-            - name: TELEGRAM_BOT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: notification-keys
-                  key: telegram_bot_token
-            - name: SMS_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: notification-keys
-                  key: sms_api_key
-            # Storage & region
-            - name: STORAGE_BUCKET
-              value: vision-os-clips
-            - name: REGION
-              value: us-central1
-            - name: VISION_OS_ENV
+            - name: ENVIRONMENT
               value: production
             # RTMP ingest (connection_type="rtmp_push" cameras) -- points at
-            # the MediaMTX VM in the visionos-platform GCP project (deliberately
-            # a different project than this Cloud Run service's rux-view-497104
-            # -- see backend/core/ingest/rtmp_ingest.py and android/SETUP.md).
-            # Not a secret, just a public IP; no auth on either port yet.
+            # the MediaMTX VM in the visionos-platform GCP project (a
+            # deliberately different project than this Cloud Run service's
+            # rux-view-497104 -- see backend/core/ingest/rtmp_ingest.py and
+            # android/SETUP.md). Not a secret, just a public IP; no auth on
+            # either port yet.
             - name: RTMP_INGEST_PUSH_HOST
               value: "35.193.96.82:1935"
             - name: RTMP_INGEST_RTSP_BASE
               value: "rtsp://35.193.96.82:8554"
-          resources:
-            limits:
-              cpu: "2"
-              memory: "2Gi"
-          # Startup probe — generous timeout for cold starts with AI models
           startupProbe:
             httpGet:
               path: /health
@@ -100,7 +85,6 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 10
-          # Liveness probe — ensure the service is responsive
           livenessProbe:
             httpGet:
               path: /health
@@ -109,6 +93,3 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
-          volumeMounts:
-            - name: cloud-sql-proxy
-              mountPath: /cloudsql
