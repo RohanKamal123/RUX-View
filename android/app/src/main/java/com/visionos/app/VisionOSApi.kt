@@ -1,15 +1,48 @@
 package com.visionos.app
 
+import com.google.gson.annotations.SerializedName
 import retrofit2.http.*
 
+// Mirrors backend/api/cameras.py's GET /api/cameras response shape exactly
+// -- the previous locationName/status/lastEventTime/unreadAlertCount
+// fields didn't exist on that endpoint at all (no location-name
+// resolution, no computed online/offline status, no last-event lookup, no
+// unread-alert tracking anywhere in the backend), so Gson would silently
+// leave them null and any UI code reading them would NPE at runtime.
 data class CameraSummary(
     val id: String,
     val name: String,
-    val locationName: String,
     val mode: String,
-    val status: String,  // online/offline/error
-    val lastEventTime: String?,
-    val unreadAlertCount: Int = 0
+    val enabled: Boolean,
+    @SerializedName("rtsp_url") val rtspUrl: String?,
+    @SerializedName("connection_type") val connectionType: String,
+    @SerializedName("p2p_serial") val p2pSerial: String?,
+    @SerializedName("p2p_username") val p2pUsername: String?,
+    @SerializedName("rtmp_push_url") val rtmpPushUrl: String?,
+    @SerializedName("created_at") val createdAt: String?,
+    @SerializedName("last_seen_at") val lastSeenAt: String?
+)
+
+data class CamerasResponse(
+    val cameras: List<CameraSummary>,
+    val total: Int
+)
+
+data class CreateCameraRequest(
+    val name: String,
+    val mode: String = "indoor",
+    @SerializedName("connection_type") val connectionType: String = "rtsp",
+    @SerializedName("rtsp_url") val rtspUrl: String? = null,
+    @SerializedName("p2p_serial") val p2pSerial: String? = null,
+    @SerializedName("p2p_username") val p2pUsername: String? = null,
+    @SerializedName("p2p_password") val p2pPassword: String? = null
+)
+
+data class CreateCameraResponse(
+    val id: String,
+    val status: String,
+    @SerializedName("connection_type") val connectionType: String,
+    @SerializedName("rtmp_push_url") val rtmpPushUrl: String?
 )
 
 data class EventItem(
@@ -81,7 +114,10 @@ interface VisionOSApi {
     suspend fun getEventDetail(@Path("id") eventId: Int): EventDetail
 
     @GET("api/cameras")
-    suspend fun getCameras(): List<CameraSummary>
+    suspend fun getCameras(): CamerasResponse
+
+    @POST("api/cameras")
+    suspend fun createCamera(@Body request: CreateCameraRequest): CreateCameraResponse
 
     @GET("api/persons/{uid}")
     suspend fun getPersonProfile(@Path("uid") personUid: String): PersonProfile

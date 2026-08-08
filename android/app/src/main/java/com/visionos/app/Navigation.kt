@@ -1,5 +1,7 @@
 package com.visionos.app
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
@@ -9,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -23,6 +26,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Events : Screen("events", "Events", Icons.Default.List)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
+
+private const val ADD_CAMERA_ROUTE = "add_camera"
 
 sealed class DetailScreen(val route: String) {
     object EventDetail : DetailScreen("event_detail/{eventId}")
@@ -70,12 +75,46 @@ fun VisionOSNavigation(
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Cameras.route) {
-                CameraListScreen(
-                    cameras = remember { mutableStateListOf() },
-                    onCameraTap = { cameraId ->
-                        navController.navigate("events?cameraId=$cameraId")
-                    },
-                    onRefresh = { /* TODO: Refresh cameras from API */ }
+                val cameras = remember { mutableStateListOf<CameraSummary>() }
+                var loadError by remember { mutableStateOf<String?>(null) }
+
+                suspend fun refreshCameras() {
+                    try {
+                        val response = api.getCameras()
+                        cameras.clear()
+                        cameras.addAll(response.cameras)
+                        loadError = null
+                    } catch (e: Exception) {
+                        loadError = "Couldn't load cameras: ${e.message}"
+                    }
+                }
+
+                LaunchedEffect(Unit) { refreshCameras() }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (loadError != null) {
+                        Text(
+                            loadError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                    CameraListScreen(
+                        cameras = cameras,
+                        onCameraTap = { cameraId ->
+                            navController.navigate("events?cameraId=$cameraId")
+                        },
+                        onAddCamera = { navController.navigate(ADD_CAMERA_ROUTE) },
+                        onRefresh = { refreshCameras() }
+                    )
+                }
+            }
+
+            composable(ADD_CAMERA_ROUTE) {
+                AddCameraScreen(
+                    api = api,
+                    onDone = { navController.popBackStack() },
+                    onBack = { navController.popBackStack() }
                 )
             }
 

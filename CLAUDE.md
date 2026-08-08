@@ -71,8 +71,65 @@ Two independently deployed halves that only talk over HTTPS triggers:
   reads RTSP/P2P camera streams, and POSTs trigger events to the backend. Packaged as
   a PyInstaller `.exe`.
 
-There are also thin `ios/` (Swift) and `android/` (Kotlin) mobile app shells that
-consume the backend API; most active development is backend + connect.
+There's also a thin `ios/` (Swift) shell that consumes the backend API (not
+actively developed) and `android/` (Kotlin), which as of this writing is a real,
+buildable Gradle app — see "Android app" below.
+
+### Android app (`android/`)
+
+Was loose Kotlin source files with no Gradle project, no manifest, no
+`MainActivity`, and a `LoginScreen.kt` that couldn't compile (passed `null!!` as
+an Android `Context`) — now a real app: `./gradlew assembleDebug` (or `gradle
+assembleDebug` if no wrapper is committed) produces a debug-signed, sideloadable
+APK. See `android/SETUP.md` for the two placeholders that need swapping before
+Google Sign-In actually works (a fake `google-services.json`, and confirming
+`ApiClient.kt`'s `BASE_URL` is your real deployed backend).
+
+`AddCameraScreen.kt` is the camera-onboarding flow, POSTing to
+`/api/cameras` with one of three `connection_type`s (see the Camera model
+section below): `rtmp_push` (recommended — no port forwarding, no proprietary
+protocol), `rtsp` (direct URL), or `dahua_p2p` (experimental).
+
+### Camera connection types (`backend/storage/database.py`'s `Camera` model)
+
+The `rtsp_url` the add-camera API accepted was silently discarded until
+recently — `Camera` had no backing column for it at all, and
+`pg_crud.upsert_camera()` never persisted it, so every camera's connection
+details were lost on creation and always read back empty. Now real, plus two
+more connection types, stored via `connection_type` + per-type fields:
+
+- **`rtsp`** — direct URL, phone/backend must be able to reach the camera
+  (same network, or port-forwarded).
+- **`rtmp_push`** (recommended default) — the DVR pushes an RTMP stream OUT to
+  a media server we run, rather than us pulling from it: no port forwarding,
+  no proprietary protocol, and it works across Hikvision/Dahua/Uniview/many
+  XMEye-OEM DVRs that support "Platform Access"/RTMP in their menu. We run
+  [MediaMTX](https://github.com/bluenviron/mediamtx) (MIT license) as the
+  ingest server; it auto-re-serves every RTMP push as RTSP too, so
+  `backend/core/ingest/rtmp_ingest.py`'s `sample_frame()` can pull a JPEG with
+  plain OpenCV like every other frame source in this codebase. Each camera
+  gets a server-generated `rtmp_stream_key` (never user-supplied — it doubles
+  as the ingest auth) and the app displays the resulting `rtmp://.../live/<key>`
+  push URL after creation. **Verified end-to-end in dev**: a real ffmpeg RTMP
+  push into a real MediaMTX instance, with a real frame pulled back out via
+  OpenCV — but MediaMTX isn't deployed to a real always-on host yet (Cloud
+  Run's request-scoped autoscaling isn't a fit for a persistent-connection
+  ingest workload), and the sampled frames aren't wired into the trigger
+  pipeline yet (`receive_frame_trigger()`'s session-merge logic needs
+  extracting into a plain function both the HTTP route and a poller can call
+  — see the module docstring for why that wasn't rushed into the same pass).
+- **`dahua_p2p`** (experimental, unverified) — same serial + username +
+  password auth as the DMSS app, for DVRs without RTMP push support. No
+  official Dahua SDK is available; `backend/core/p2p/dahua_client.py` is built
+  from a published, MIT-licensed reverse-engineering project
+  ([dh-p2p](https://github.com/khoanguyen-3fc/dh-p2p)), with only the
+  low-risk HTTP probe/lookup calls and the pure `compute_login_hash()`
+  function actually implemented — the AES-encrypted salt lookup and the PTCP
+  UDP tunnel itself are left as documented `NotImplementedError`s rather than
+  guessing binary protocol details with no real camera to verify against.
+
+`p2p_password` is encrypted at rest via `backend/core/crypto.py` (Fernet, key
+derived from `settings.secret_key`) — never stored or returned as plaintext.
 
 ### Trigger-only, not streaming (D005)
 
