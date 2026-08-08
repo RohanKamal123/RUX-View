@@ -12,7 +12,12 @@
           "package_name": "com.visionos.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "504980287958-rejqoqcjdgjjav2hehtrm3pnjitlnhth.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAEgt2wQEgMUsCR7xGaWeNONzk9Ax8AOsM"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "504980287958-rejqoqcjdgjjav2hehtrm3pnjitlnhth.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
