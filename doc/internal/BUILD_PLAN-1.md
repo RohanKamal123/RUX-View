@@ -1,4 +1,6 @@
 # BUILD_PLAN.md
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Vision OS — Solo Build Roadmap
 # 12 Weeks from Zero to Beta
 

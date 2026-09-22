@@ -1,5 +1,7 @@
 # Vertex AI Migration — Task Progress
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 - [x] Analyze codebase and create migration plan
 - [x] Update `requirements.txt` — replace google-generativeai with google-cloud-aiplatform
 - [x] Rewrite `backend/ai/ai_client.py` — migrate from google-generativeai SDK to vertexai SDK

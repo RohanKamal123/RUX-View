@@ -1,5 +1,7 @@
 # Database Testing Guide — Vision OS
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 ## Quick Start
 
 ```bash

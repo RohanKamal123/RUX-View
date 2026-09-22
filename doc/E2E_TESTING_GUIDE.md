@@ -1,5 +1,7 @@
 # Vision OS — End-to-End Testing Guide
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 > **Your Stack:** Gemini 2.0 Flash (vision + text + audio) | Telegram | MEGA.nz | IP Webcam  
 > **Not Used:** Whisper, Groq, SMS, Payments, PostgreSQL (MEGA-only mode)
 

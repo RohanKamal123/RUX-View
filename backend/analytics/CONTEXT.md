@@ -1,4 +1,6 @@
 # CONTEXT.md — Analytics Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/analytics/
 # Sprint: 4.2 (shop_analytics), 4.3 (digest_generator), 5.4 (report_builder)
 # Purpose: Business intelligence + user digests

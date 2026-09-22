@@ -1,4 +1,6 @@
 ================================================================================
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 VISION OS — PROJECT STRUCTURE DOCUMENTATION
 ================================================================================
 Generated: 2026-06-11

@@ -1,5 +1,7 @@
 # Documentation Index
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 ## Start Here
 - ARCHITECTURE.md — Historical system design reference; verify current behavior against code and README
 - ../README.md — Quickstart, tech stack, local setup

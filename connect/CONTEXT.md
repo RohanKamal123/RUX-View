@@ -1,4 +1,6 @@
 # CONTEXT.md — Vision OS Connect (Client Agent)
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: connect/
 # Purpose: Windows desktop agent for on-premise camera capture + YOLO detection
 

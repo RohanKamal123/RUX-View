@@ -1,4 +1,6 @@
 # CONTEXT.md — Alerts Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/alerts/
 # Sprint: 3.5
 # Purpose: Alert routing + delivery channels

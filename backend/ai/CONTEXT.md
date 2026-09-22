@@ -1,4 +1,6 @@
 # CONTEXT.md — AI Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/ai/
 # Purpose: All AI/ML operations
 

@@ -1,4 +1,6 @@
 # DECISIONS.md
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Vision OS — Architectural Decision Record
 # Every major choice and why it was made
 

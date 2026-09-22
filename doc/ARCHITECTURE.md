@@ -1,4 +1,6 @@
 # ARCHITECTURE.md
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Vision OS — Complete Technical Specification
 # Version 2.0 | Locked for V2 Build
 

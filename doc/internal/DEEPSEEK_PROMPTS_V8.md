@@ -1,4 +1,6 @@
 # Vision OS V8 — DeepSeek Coding Prompts
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Production Deployment & Scaling
 # Copy-paste these prompts into DeepSeek to generate each sprint's code
 # Each prompt includes: context + function signatures + test cases

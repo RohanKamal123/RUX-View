@@ -1,5 +1,7 @@
 # Vision OS
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 AI-powered CCTV intelligence for the Bangladesh market. Analyzes camera streams using Gemini vision and alerts building owners via Telegram.
 
 ## What it does

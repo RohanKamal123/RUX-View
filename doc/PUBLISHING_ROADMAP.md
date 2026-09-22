@@ -1,4 +1,6 @@
 # Vision OS — Complete SaaS Publishing Roadmap (MEGA.nz Edition)
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # From Code to Live Production: MEGA.nz as Backend Storage
 
 > Status note: this is a planning/history document. “Complete” or “ready” items

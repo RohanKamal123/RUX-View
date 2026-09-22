@@ -1,5 +1,7 @@
 # SOLO BUILD RULES
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 ```
 1. MAX 200 LINES PER FILE
    If bigger → split into two files

@@ -1,4 +1,6 @@
 # CONTEXT.md — Dashboard Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/dashboard/
 # Sprint: 1.3 (auth.py), 5.1 (server.py + templates)
 # Purpose: Web dashboard + authentication

@@ -1,4 +1,6 @@
 # Vision OS V6 — DeepSeek Coding Prompts
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Multi-Camera Management & Admin Panel
 # Copy-paste these prompts into DeepSeek to generate each sprint's code
 # Each prompt includes: context + function signatures + test cases

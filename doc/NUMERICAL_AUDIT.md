@@ -1,5 +1,7 @@
 # Numerical Logic Audit — RUX View
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 **Date:** 2026-06-19  
 **Scope:** Every file containing thresholds, intervals, timeouts, counts, scores, sizes, or hardcoded numeric constants that drive decision-making.
 

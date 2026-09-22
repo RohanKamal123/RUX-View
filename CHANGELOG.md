@@ -1,5 +1,7 @@
 # Changelog
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 ## [Unreleased] — Phase 1–4 + Performance
 
 ### Phase 1 — Infrastructure foundation

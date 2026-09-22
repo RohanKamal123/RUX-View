@@ -1,4 +1,6 @@
 # CONTEXT.md — Storage Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/storage/
 # Sprint: 1.2
 # Purpose: Database schema, connection management, data retention

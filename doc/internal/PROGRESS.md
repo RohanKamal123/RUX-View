@@ -1,4 +1,6 @@
 # Vision OS — Progress Report
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Date: May 1, 2026
 # Phase: ✅ V11 MEGA.nz Integration Complete
 

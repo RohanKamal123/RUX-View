@@ -1,4 +1,6 @@
 # CONTEXT.md — API Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/api/
 # Current state: trigger/camera/user routes are active; analytics, clips, and public signup contain explicit stubs
 # Purpose: REST API endpoints

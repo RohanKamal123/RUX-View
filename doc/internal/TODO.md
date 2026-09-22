@@ -1,5 +1,7 @@
 # TODO — Comprehensive AI Performance Runner
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 - [ ] Update `test_ai_performance.py` to fully cover all AI client modalities (including `analyse_frame_with_second_pass`).
 - [ ] Fix/replace fragile argument mapping in text tests with explicit kwargs per function.
 - [ ] Harden rate-limiting verification (reduce network/timing flakiness).

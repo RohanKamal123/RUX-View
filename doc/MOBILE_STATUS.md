@@ -1,5 +1,7 @@
 # Mobile Apps — Development Status
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 ## Android (Kotlin)
 Status: Feature-complete UI — all core screens built.
 Files: 11 files, ~2,400 lines

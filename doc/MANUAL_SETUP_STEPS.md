@@ -1,4 +1,6 @@
 # Vision OS — Manual Setup Steps
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # What You Do By Hand (Can't Be Coded)
 
 **Date**: May 1, 2026

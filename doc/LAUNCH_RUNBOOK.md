@@ -1,5 +1,7 @@
 # Vision OS Launch Day Operations Runbook
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 **Version**: 1.1  
 **Last Updated**: 2026-06-18  
 **Project**: Vision OS - AI-powered CCTV Intelligence SaaS for Bangladesh  

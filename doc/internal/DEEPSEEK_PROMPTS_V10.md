@@ -1,4 +1,6 @@
 # Vision OS V10 — DeepSeek Coding Prompts
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Industry-Ready SaaS: Live Launch & Global Access (10–20 Cameras)
 # Copy-paste these prompts into DeepSeek to generate each sprint's code
 # Each prompt includes: context + function signatures + test cases

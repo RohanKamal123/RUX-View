@@ -1,4 +1,6 @@
 # CONTEXT.md — Core Module
+
+See CURRENT_STATE.md for what is actually implemented vs. planned.
 # Module: backend/core/
 # Purpose: Core AI pipeline orchestrators + detection stack
 

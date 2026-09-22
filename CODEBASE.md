@@ -1,5 +1,7 @@
 # Vision OS — CODEBASE.md
 
+See CURRENT_STATE.md for what is actually implemented vs. planned.
+
 > AI-powered CCTV intelligence platform for Bangladesh.
 > Backend: FastAPI + PostgreSQL (Neon) + Gemini 2.0 Flash + Groq.
 > Client: Python desktop agent (RTSP → motion → trigger → backend).
