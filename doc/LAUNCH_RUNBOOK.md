@@ -45,12 +45,12 @@
 | Time | Action | Owner | Verification |
 |------|--------|-------|--------------|
 | **T-60min** | Final readiness check, warm up Cloud Run instances | Primary Engineer | `curl -s https://api.visionos.app/health` returns 200 OK |
-| **T-45min** | Enable internal testing mode (disable public signup temporarily) | Secondary Engineer | Firebase Auth shows 0 new signups in last 5min |
-| **T-30min** | **Enable public signup** - Flip feature flag to allow registrations | Primary Engineer | Monitor Firebase Auth real-time dashboard |
+| **T-45min** | Enable internal testing mode; keep public signup disabled | Secondary Engineer | Confirm no unauthenticated signup path is exposed |
+| **T-30min** | Verify Firebase-backed authentication for existing users | Primary Engineer | Monitor Firebase Auth and application logs |
 | **T-15min** | Announce standby mode on social media/Telegram: "Launch in 15min!" | Secondary Engineer | Post to @visionosbd Telegram channel |
 | **T-0** | **Official Launch Announcement** | Primary Engineer | Post launch announcement to: <br> - Twitter/X @visionosbd <br> - LinkedIn Company Page <br> - Telegram @visionosbd <br> - Facebook Page |
-| **T+5min** | Verify first 5 signups completed successfully | Both Engineers | Check Firebase Auth > Users for new accounts with email_verified=true |
-| **T+15min** | **End-to-End First User Journey Check**: <br> 1. Signup with test email <br> 2. Add camera (RTSP stream) <br> 3. Trigger AI detection <br> 4. Verify alert received | Primary Engineer | All steps complete < 2min, no errors in logs |
+| **T+5min** | Verify a provisioned Firebase user can sign in | Both Engineers | Check Firebase Auth and application logs |
+| **T+15min** | **End-to-End Existing User Check**: <br> 1. Sign in with a provisioned user <br> 2. Add camera (RTSP stream) <br> 3. Trigger AI detection <br> 4. Verify alert received | Primary Engineer | All steps complete < 2min, no errors in logs |
 | **T+30min** | Review initial error rates and latency from Cloud Monitoring | Secondary Engineer | Error rate < 0.5%, p95 latency < 300ms |
 | **T+1hr** | **Review Monitoring Dashboards** (see Section 3) | Both Engineers | All metrics within normal ranges |
 | **T+2hr** | Check payment processing for any first purchases | Secondary Engineer | Verify 0 failed transactions in bKash dashboard |
@@ -113,8 +113,9 @@ Expected:
 {"status": "ok", "latency_ms": "< 50"}
 ```
 
-**If Redis is down**: BoT-SORT tracker falls back to stateless mode (Track IDs reset per request).
-Gemini calls are NOT blocked by Redis failure. YOLO gate continues to work independently.
+**If Redis is down**: optional runtime/session state is unavailable. Gemini analysis
+and the YOLO gate should be checked independently; Redis health is not proof of
+persistent identity tracking.
 
 **Monitoring**: Set up a Cloud Monitoring alert on `/health` endpoint Redis response time > 200ms.
 
@@ -131,8 +132,10 @@ Gemini calls are NOT blocked by Redis failure. YOLO gate continues to work indep
 ### Symptom: Pipeline consistently returns change_detected=False
 **Fix**: Incident builder may be rate-limiting correctly. Check incident builder logs for "skip Gemini" reasons. If expected behaviour is wrong, check `GEMINI_INTERVAL_SEC` in `incident_builder.py` (default: 120s).
 
-### Symptom: Missing track IDs after deploy
-**Fix**: Redis transient — takes ~5s to repopulate. If tracks missing for >60s, check Upstash Redis dashboard for connection limits.
+### Symptom: Missing event timeline data
+**Fix**: Confirm the trigger route completed its `HybridCRUD.update_event()` call
+and inspect the event's `timeline_json` field. Persistent person identity tracking
+is not a supported production guarantee.
 
 ---
 

@@ -1,13 +1,9 @@
 """
 public_signup.py — Self-Service Signup Flow for Vision OS.
 
-Handles:
-- Firebase Auth account creation
-- Automatic trial start (30 days)
-- Email verification
-- Rate limiting (5 signups/IP/hour)
-- Welcome email/Telegram message
-- Password reset flow
+Handles a validation-only, in-memory signup/reset prototype. It does not create
+Firebase accounts, persist users, send verification mail, or provide a
+production password-reset flow.
 
 Uses async/await throughout.
 """

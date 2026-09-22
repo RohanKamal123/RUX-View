@@ -2,9 +2,11 @@
 pipeline.py — Main pipeline orchestrator for Vision OS.
 
 One CameraPipeline instance per camera.
-Orchestrates the entire incident flow:
-  incident_tracker → gemma → reid → cross_camera → repeat_sighting
-  → ghost_detector → gemini_decision → alert_router → database
+Orchestrates the supported incident flow:
+  incident_tracker → Gemini vision → incident decision → alert_router
+
+Event persistence is owned by the API's HybridCRUD path. This pipeline returns
+the incident result and timeline and does not insert a second database event.
 
 All calls async, use asyncio.gather() for parallel AI calls (D026).
 Trigger-only architecture (D005).
@@ -17,6 +19,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+class VisionAnalysisError(RuntimeError):
+    """Raised when vision analysis fails to produce a usable result."""
 
 
 @dataclass
@@ -50,6 +56,7 @@ class PipelineResult:
     suppressed_alerts: list = field(default_factory=list)  # Alerts that WOULD have been sent (dry_run only)
     annotated_jpeg_b64: Optional[str] = None  # Base64-encoded JPEG with YOLO bounding boxes drawn
     suppressed_db_events: list = field(default_factory=list)  # Events that WOULD have been written
+    timeline_json: list = field(default_factory=list)  # Incident timeline snapshot for API persistence
     stage_timings_ms: dict = field(default_factory=dict)  # Per-stage wall-clock timing
 
 
@@ -280,6 +287,7 @@ class CameraPipeline:
                     incident_id=self._incident_tracker.incident_id,
                     threat_level="LOW",
                     dry_run=ctx.dry_run,
+                    timeline_json=list(self._incident_tracker.timeline),
                 )
 
             # Step 2: If GEMMA_CALL, run vision analysis
@@ -295,6 +303,7 @@ class CameraPipeline:
                         threat_level="LOW",
                         change_detected=False,
                         dry_run=ctx.dry_run,
+                        timeline_json=list(self._incident_tracker.timeline),
                     )
 
                 # Step 3: If persons found, run Re-ID
@@ -329,6 +338,7 @@ class CameraPipeline:
                 threat_level="TRACKING",
                 person_ids=[p.get("person_uid", "") for p in person_results],
                 dry_run=ctx.dry_run,
+                timeline_json=list(self._incident_tracker.timeline),
             )
 
         except Exception as exc:
@@ -338,8 +348,13 @@ class CameraPipeline:
             )
             return PipelineResult(
                 error=str(exc),
-                threat_level="LOW",
+                threat_level="UNKNOWN",
                 dry_run=ctx.dry_run if ctx else False,
+                timeline_json=(
+                    list(self._incident_tracker.timeline)
+                    if self._incident_tracker is not None
+                    else []
+                ),
             )
 
     async def _run_vision_analysis(self, ctx: PipelineContext) -> dict:
@@ -393,6 +408,11 @@ class CameraPipeline:
                 config=ctx.config,
             )
 
+            if structured and structured.get("description") == "No analysis available":
+                raise VisionAnalysisError(
+                    "Structured vision analysis did not produce a result"
+                )
+
             # Store for fallback message fix in _make_decision
             self._last_structured_result = structured
 
@@ -409,6 +429,9 @@ class CameraPipeline:
             # Call 2a only — person extraction for Re-ID (no text-only verdict call)
             persons_result = await analyse_frame(jpeg_bytes=ctx.jpeg_bytes,
                                                   config=ctx.config)
+            analysis_alerts = (persons_result or {}).get("scene_alerts", [])
+            if any(str(alert).startswith("AI analysis error:") for alert in analysis_alerts):
+                raise VisionAnalysisError("Person analysis failed")
 
             result = persons_result or {}
             # Use structured's threat assessment (from image) as authoritative —
@@ -427,7 +450,9 @@ class CameraPipeline:
 
         except Exception as exc:
             logger.error("Vision analysis failed: %s", exc, exc_info=True)
-            return {"persons": [], "threat_level": "LOW", "alert_message": ""}
+            if isinstance(exc, VisionAnalysisError):
+                raise
+            raise VisionAnalysisError(f"Vision analysis failed: {exc}") from exc
 
     async def _run_reid(self, frame_bytes: Optional[bytes], person_results: list,
                          ctx: PipelineContext) -> list[str]:
@@ -609,29 +634,24 @@ class CameraPipeline:
                 timeline=timeline,
                 context=context,
             )
+            if decision and decision.get("reasoning") == "AI analysis failed":
+                raise VisionAnalysisError("Incident decision analysis failed")
             return decision or {
                 "threat_level": "LOW",
                 "alert_message": "Incident closed",
             }
         except Exception as exc:
             logger.error("Incident decision failed: %s", exc, exc_info=True)
-            # Use the structured description from the last analysis instead of hardcoded fallback
-            fallback_description = self._last_structured_result.get(
-                "description", ""
-            )
-            if not fallback_description:
-                fallback_description = "No analysis available"
-            return {
-                "threat_level": "MEDIUM",
-                "alert_message": f"Incident resolved: {fallback_description}",
-            }
+            if isinstance(exc, VisionAnalysisError):
+                raise
+            raise VisionAnalysisError(f"Incident decision analysis failed: {exc}") from exc
 
     async def _route_and_save(self, decision: dict, ctx: PipelineContext,
                                person_results: list) -> PipelineResult:
-        """Route alert and save event to database.
+        """Route alert; the API persists the event and timeline through HybridCRUD.
 
-        When dry_run=True, alert sends and DB writes are suppressed.
-        Alerts and events that WOULD have been sent are returned in
+        When dry_run=True, alert sends are suppressed. Alerts and events that
+        WOULD have been sent are returned in
         the suppressed_alerts / suppressed_db_events fields.
 
         Args:
@@ -711,7 +731,7 @@ class CameraPipeline:
             except Exception as exc:
                 logger.error("Alert routing failed: %s", exc, exc_info=True)
 
-        # Save to database — suppress on dry_run
+        # The API route owns event persistence. Do not insert a second event here.
         suppressed_db_events = []
         if ctx.dry_run:
             logger.info(
@@ -724,24 +744,8 @@ class CameraPipeline:
                 "incident_id": self._incident_tracker.incident_id,
                 "threat_level": threat_level,
                 "alert_message": alert_message,
+                "timeline_json": list(self._incident_tracker.timeline),
             })
-        else:
-            try:
-                if self._db_factory:
-                    from backend.storage.crud import create_event
-                    async with self._db_factory() as db:
-                        await create_event(db, {
-                            "camera_id": ctx.camera_id,
-                            "user_id": ctx.user_id,
-                            "location_id": ctx.location_id,
-                            "incident_id": self._incident_tracker.incident_id,
-                            "timestamp_start": ctx.timestamp,
-                            "threat_level": threat_level,
-                            "alert_sent": alert_sent,
-                            "gemini_decision": {"alert_message": alert_message, "persons": person_results},
-                        })
-            except Exception as exc:
-                logger.error("Failed to save incident event: %s", exc, exc_info=True)
 
         return PipelineResult(
             incident_id=self._incident_tracker.incident_id,
@@ -752,6 +756,7 @@ class CameraPipeline:
             dry_run=ctx.dry_run,
             suppressed_alerts=suppressed_alerts,
             suppressed_db_events=suppressed_db_events,
+            timeline_json=list(self._incident_tracker.timeline),
         )
 
     async def shutdown(self) -> None:

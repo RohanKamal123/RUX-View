@@ -1,33 +1,16 @@
-"""API endpoints for clip recording and playback.
+"""Explicitly incomplete clip API surface.
 
-Provides FastAPI routes for managing video clips: listing clips for events,
-streaming clips with byte-range support, getting thumbnails, and
-triggering manual clip recording.
+The routes currently return empty or fabricated placeholder responses. They do
+not list stored clips, stream media, generate thumbnails, or record clips.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional
 
+from backend.dashboard.auth import get_current_user
+
 router = APIRouter(prefix="/api/clips", tags=["clips"])
-
-
-async def get_current_user(request: Request) -> dict:
-    """Get current user from request.
-
-    Placeholder - would validate Firebase/JWT token.
-
-    Args:
-        request: FastAPI request
-
-    Returns:
-        User dict with id, tier, etc.
-    """
-    return {
-        "id": "user_123",
-        "tier": "business",
-        "email": "user@example.com",
-    }
 
 
 @router.get("/event/{event_id}")

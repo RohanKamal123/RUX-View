@@ -5,12 +5,18 @@ work for PING, HSET, HGETALL, and DELETE.
 """
 
 import asyncio
+import os
+
 from upstash_redis.asyncio import Redis
 
 
 async def main():
-    url = "https://civil-ox-146786.upstash.io"
-    token = "gQAAAAAAAj1iAAIgcDJiYWY5NmZhN2RiNzc0ZDg4OWI4YTZkNWJmNTU1NDk1Yg"
+    url = os.environ.get("UPSTASH_REDIS_REST_URL")
+    token = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+    if not url or not token:
+        raise RuntimeError(
+            "Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN before running this smoke test"
+        )
 
     r = Redis(url=url, token=token)
 

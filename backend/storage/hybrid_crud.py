@@ -27,6 +27,14 @@ from backend.storage.engine import create_session
 logger = logging.getLogger(__name__)
 
 
+class StorageOperationError(RuntimeError):
+    """Raised when a storage operation cannot complete successfully."""
+
+    def __init__(self, operation: str):
+        self.operation = operation
+        super().__init__(f"Storage operation failed: {operation}")
+
+
 # ===========================================================================
 # Unified Data Models
 # ===========================================================================
@@ -304,35 +312,36 @@ class HybridCRUD:
 
     async def get_user_events(self, user_id: str, limit: int = 50) -> list[Event]:
         """Get events for a user."""
-        if self._pg_available:
-            try:
-                pg_events = await self._pg.get_user_events(user_id, limit=limit)
-                return [
-                    Event(
-                        event_id=str(e.id),
-                        user_id=e.user_id,
-                        camera_id=e.camera_id,
-                        event_type=e.incident_id or "motion",
-                        confidence=0.0,
-                        threat_level=e.threat_level or "LOW",
-                        thumbnail_url=e.thumbnail_url or f"/api/triggers/image/{e.incident_id}",
-                        alert_message=(e.gemini_decision or {}).get("alert_message", ""),
-                        camera_name=e.camera_id,
-                        timestamp_start=str(e.timestamp_start) if e.timestamp_start else "",
-                        timestamp_end=str(e.timestamp_end) if getattr(e, "timestamp_end", None) else None,
-                        duration_sec=int(e.duration_sec or 0),
-                        person_ids=(e.gemini_decision or {}).get("person_ids", []),
-                        details={
-                            "image_base64": (e.gemini_decision or {}).get("image_base64", ""),
-                            "frame_count": (e.gemini_decision or {}).get("frame_count", 0),
-                        },
-                        created_at=str(e.timestamp_start) if e.timestamp_start else "",
-                    ) for e in pg_events
-                ]
-            except Exception as e:
-                logger.error("PG events list failed: %s", e)
+        if not self._pg_available:
+            raise StorageOperationError("get_user_events:postgres_unavailable")
 
-        return []
+        try:
+            pg_events = await self._pg.get_user_events(user_id, limit=limit)
+            return [
+                Event(
+                    event_id=str(e.id),
+                    user_id=e.user_id,
+                    camera_id=e.camera_id,
+                    event_type=e.incident_id or "motion",
+                    confidence=0.0,
+                    threat_level=e.threat_level or "LOW",
+                    thumbnail_url=e.thumbnail_url or f"/api/triggers/image/{e.incident_id}",
+                    alert_message=(e.gemini_decision or {}).get("alert_message", ""),
+                    camera_name=e.camera_id,
+                    timestamp_start=str(e.timestamp_start) if e.timestamp_start else "",
+                    timestamp_end=str(e.timestamp_end) if getattr(e, "timestamp_end", None) else None,
+                    duration_sec=int(e.duration_sec or 0),
+                    person_ids=(e.gemini_decision or {}).get("person_ids", []),
+                    details={
+                        "image_base64": (e.gemini_decision or {}).get("image_base64", ""),
+                        "frame_count": (e.gemini_decision or {}).get("frame_count", 0),
+                    },
+                    created_at=str(e.timestamp_start) if e.timestamp_start else "",
+                ) for e in pg_events
+            ]
+        except Exception as e:
+            logger.exception("PG events list failed")
+            raise StorageOperationError("get_user_events:postgres_query_failed") from e
 
     async def get_event_by_id(self, event_id: str, user_id: str) -> Optional[Event]:
         """Get a single event by its event_id (incident_id) and user_id.
@@ -383,6 +392,7 @@ class HybridCRUD:
         timestamp_end: Optional["datetime"] = None,
         duration_sec: Optional[float] = None,
         frame_count: Optional[int] = None,
+        timeline_json: Optional[list] = None,
     ) -> bool:
         """Update an event's pipeline results.
 
@@ -425,13 +435,15 @@ class HybridCRUD:
                         threat_level=threat_level,
                         alert_sent=bool(alert_message) if alert_message else None,
                         gemini_decision=gemini_decision,
+                        timeline_json=timeline_json,
                         timestamp_end=timestamp_end,
                         duration_sec=duration_sec,
                         session=session,
                     )
                 logger.info(
-                    "Updated event %s: threat=%s, alert=%s, persons=%s, frames=%s, end=%s, dur=%s",
-                    event_id, threat_level, alert_message, person_ids, frame_count, timestamp_end, duration_sec,
+                    "Updated event %s: threat=%s, alert=%s, persons=%s, frames=%s, timeline=%s, end=%s, dur=%s",
+                    event_id, threat_level, alert_message, person_ids, frame_count,
+                    timeline_json is not None, timestamp_end, duration_sec,
                 )
                 return True
             except Exception as e:
@@ -496,12 +508,14 @@ class HybridCRUD:
 
     async def count_user_events(self, user_id: str) -> int:
         """Count events for a user."""
-        if self._pg_available:
-            try:
-                return await self._pg.count_user_events(user_id)
-            except Exception:
-                pass
-        return 0
+        if not self._pg_available:
+            raise StorageOperationError("count_user_events:postgres_unavailable")
+
+        try:
+            return await self._pg.count_user_events(user_id)
+        except Exception as e:
+            logger.exception("PG event count failed")
+            raise StorageOperationError("count_user_events:postgres_query_failed") from e
 
     # ── Payments ───────────────────────────────────────────────────────────
 

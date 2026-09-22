@@ -2,6 +2,14 @@
 # Vision OS — Complete Technical Specification
 # Version 2.0 | Locked for V2 Build
 
+> **Current-state notice:** This is a historical design reference, not the
+> current implementation contract. The supported path is trigger frame →
+> detection/incident analysis → alert routing → one API-owned `HybridCRUD` event
+> update (including `timeline_json`). Person Re-ID, BoT-SORT as a supported
+> identity guarantee, crowd counting, line crossing, zone entry/exit, production
+> clip storage, and Firebase-backed public signup/reset are not current shipped
+> features.
+
 ---
 
 ## 1. PRODUCT OVERVIEW

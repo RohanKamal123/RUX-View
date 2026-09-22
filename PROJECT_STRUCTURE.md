@@ -68,7 +68,7 @@ backend/
 │   ├── __init__.py
 │   ├── ai_client.py          # ★ Vertex AI (Gemini 2.0 Flash) — vision analysis ★
 │   ├── query_engine.py       # Natural language query engine ("Who wore red today?")
-│   ├── reid_engine.py        # Person Re-Identification engine (cross-camera tracking)
+│   ├── reid_engine.py        # Legacy identity-matching module; not part of supported flow
 │   └── CONTEXT.md            # AI module design context
 │
 ├── alerts/                   # Alerting & notification system
@@ -115,7 +115,7 @@ backend/
 │   ├── cache_manager.py      # In-memory cache management
 │   ├── camera_health.py      # Camera health monitoring & status
 │   ├── camera_limits.py      # Per-tier camera limits enforcement
-│   ├── cross_camera.py       # Cross-camera person tracking (Re-ID orchestration)
+│   ├── cross_camera.py       # Legacy cross-camera correlation module
 │   ├── error_handler.py      # Centralized error handling & formatting
 │   ├── firebase_rules.json   # Firebase security rules
 │   ├── ghost_detector.py     # Ghost detection (false positive reduction)
@@ -408,8 +408,6 @@ Root-level scripts:
 doc/
 ├── ARCHITECTURE-1.md              # Complete technical architecture specification
 ├── BUILD_PLAN-1.md                # 12-week solo build roadmap
-├── CONTEXT_cross_camera_reid.md   # Cross-camera Re-ID design context
-├── CONTEXT_outdoor_crowd_mode.md  # Outdoor crowd mode design context
 ├── DECISIONS-1.md                 # All architectural decisions explained
 ├── DEEPSEEK_PROMPTS_V1.md through V11.md  # AI prompt evolution history
 ├── E2E_TESTING_GUIDE.md           # End-to-end testing guide

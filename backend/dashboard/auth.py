@@ -87,9 +87,22 @@ SESSION_COOKIE_NAME = "visionos_session"
 SESSION_MAX_AGE_SECONDS = 86400  # 24 hours
 
 
+def validate_security_config() -> None:
+    """Fail startup when a non-development environment lacks a session secret."""
+    if settings.environment.lower() != "development" and not settings.secret_key:
+        raise RuntimeError(
+            "SECRET_KEY must be configured outside the development environment"
+        )
+
+
 def _sign_data(data: str) -> str:
     """HMAC-SHA256 sign a string with the secret key."""
-    key = settings.secret_key.encode("utf-8") if settings.secret_key else b"dev-secret-key"
+    if settings.secret_key:
+        key = settings.secret_key.encode("utf-8")
+    elif settings.environment.lower() == "development":
+        key = b"dev-secret-key"
+    else:
+        raise RuntimeError("SECRET_KEY must be configured outside development")
     return hmac.new(key, data.encode("utf-8"), hashlib.sha256).hexdigest()
 
 

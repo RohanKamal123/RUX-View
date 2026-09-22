@@ -334,6 +334,17 @@ async def receive_frame_trigger(
                                 camera_id,
                             )
                             session["last_motion_at"] = now
+                            if pipeline_result.timeline_json:
+                                try:
+                                    await crud.update_event(
+                                        event_id=session["event_id"],
+                                        timeline_json=pipeline_result.timeline_json,
+                                    )
+                                except Exception as update_err:
+                                    logger.error(
+                                        "Failed to update timeline for event %s: %s",
+                                        session["event_id"], update_err,
+                                    )
                             return {
                                 "event_id": session["event_id"],
                                 "status": "session_updated",
@@ -355,6 +366,7 @@ async def receive_frame_trigger(
                                     alert_message=pipeline_result.alert_message,
                                     person_ids=pipeline_result.person_ids,
                                     frame_count=session["frame_count"],
+                                    timeline_json=pipeline_result.timeline_json,
                                 )
                             except Exception as update_err:
                                 logger.error(
@@ -368,6 +380,7 @@ async def receive_frame_trigger(
                                 await crud.update_event(
                                     event_id=session["event_id"],
                                     frame_count=session["frame_count"],
+                                    timeline_json=pipeline_result.timeline_json,
                                 )
                             except Exception as update_err:
                                 logger.error(
@@ -389,6 +402,7 @@ async def receive_frame_trigger(
                     "max_threat": session["max_threat"],
                     "pipeline": {
                         "threat_level": pipeline_result.threat_level,
+                        "error": pipeline_result.error,
                     } if pipeline_result is not None else None,
                 }
 
@@ -480,6 +494,7 @@ async def receive_frame_trigger(
                             alert_message=pipeline_result.alert_message,
                             person_ids=pipeline_result.person_ids,
                             frame_count=session["frame_count"],
+                            timeline_json=pipeline_result.timeline_json,
                         )
                     except Exception as update_err:
                         logger.error("Failed to update event %s with pipeline result: %s", event.event_id, update_err)
@@ -504,6 +519,7 @@ async def receive_frame_trigger(
                     "alert_message": pipeline_result.alert_message,
                     "alert_sent": pipeline_result.alert_sent,
                     "person_ids": pipeline_result.person_ids,
+                    "error": pipeline_result.error,
                 }
             return response
 
@@ -599,6 +615,14 @@ async def receive_audio_trigger(
                     "Pipeline result for audio trigger on camera %s: threat=%s",
                     camera_id,
                     pipeline_result.threat_level,
+                )
+                await crud.update_event(
+                    event_id=event.event_id,
+                    threat_level=pipeline_result.threat_level,
+                    alert_message=pipeline_result.alert_message,
+                    person_ids=pipeline_result.person_ids,
+                    frame_count=1,
+                    timeline_json=pipeline_result.timeline_json,
                 )
             except Exception as pipe_err:
                 logger.error("Pipeline audio processing failed for camera %s: %s", camera_id, pipe_err)

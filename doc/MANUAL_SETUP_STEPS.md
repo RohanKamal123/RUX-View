@@ -99,7 +99,7 @@ This is needed for Cloud Run deployment (hosting the API server).
 
 ```bash
 # MEGA.nz (Backend Storage — all user data, cameras, events, billing)
-MEGA_EMAIL=visionos.business@mega.nz
+MEGA_EMAIL=your_mega_email_here
 MEGA_PASSWORD=your_mega_password_here
 
 # Firebase

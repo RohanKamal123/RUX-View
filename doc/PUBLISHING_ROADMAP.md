@@ -1,6 +1,11 @@
 # Vision OS — Complete SaaS Publishing Roadmap (MEGA.nz Edition)
 # From Code to Live Production: MEGA.nz as Backend Storage
 
+> Status note: this is a planning/history document. “Complete” or “ready” items
+> are not a substitute for checking the current code. Public signup/reset,
+> analytics aggregation, clip storage/playback, Re-ID, crowd, line-crossing,
+> and zone features are not current shipped capabilities.
+
 **Date**: May 1, 2026
 **Author**: Vision OS Engineering
 **Status**: ⬜ Not Started | 🔄 In Progress | ✅ Complete

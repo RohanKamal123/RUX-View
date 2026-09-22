@@ -34,7 +34,7 @@ from backend.config import settings
 from backend.storage.pg_crud import PostgresCRUD
 from backend.storage.hybrid_crud import HybridCRUD
 from backend.storage.engine import close_db, init_db
-from backend.dashboard.auth import init_firebase
+from backend.dashboard.auth import init_firebase, validate_security_config
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
     On shutdown: cleanup resources.
     """
     logger.info("Starting Vision OS Dashboard (PostgreSQL Backend)...")
+    validate_security_config()
 
     # ── 1. Initialize Firebase Auth ────────────────────────────
     try:
@@ -193,7 +194,12 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://visionos.app",
+        "https://www.visionos.app",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -308,6 +314,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "error", "message": "Missing token"})
                 await websocket.close(code=4001)
                 return
+
+            from backend.dashboard.auth import verify_token
+            try:
+                user = await verify_token(token)
+            except Exception:
+                logger.warning("WebSocket authentication failed: camera=%s", camera_id)
+                await websocket.send_json({"type": "error", "message": "Invalid or expired token"})
+                await websocket.close(code=4001)
+                return
+
+            websocket.state.user = user
             logger.info("WebSocket client authenticated: camera=%s", camera_id)
             await websocket.send_json({"type": "auth_ok", "camera_id": camera_id})
         else:

@@ -56,7 +56,7 @@ CREATE TABLE persons (
   is_staff            BOOLEAN DEFAULT FALSE,
   user_label          VARCHAR(100),          -- "Postman", "Gardener"
   appearance_history  JSONB,
-  embedding           vector(512),           -- pgvector: BoxMOT/FastReID embedding
+  embedding           vector(512),           -- legacy identity data; not populated by the supported trigger path
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(person_uid, user_id)
 );
@@ -114,6 +114,6 @@ CREATE INDEX ON persons USING ivfflat (embedding vector_cosine_ops) WITH (lists 
 ## Called By
 - backend/api/*.py
 - backend/core/pipeline.py
-- backend/ai/reid_engine.py
+- legacy Re-ID modules are retained only for historical context and are not part of the supported event path
 - backend/analytics/*.py
 - backend/alerts/alert_router.py

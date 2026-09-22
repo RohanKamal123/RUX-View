@@ -2,6 +2,10 @@
 # Module: backend/ai/
 # Purpose: All AI/ML operations
 
+> Current-state note: Gemini vision, audio, incident decisions, and query
+> handling are supported. The Re-ID/BoxMOT sections below are historical design
+> context only and are not a supported production identity path.
+
 ---
 
 ## What This Module Does

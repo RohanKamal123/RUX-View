@@ -2,6 +2,12 @@
 # Module: backend/core/
 # Purpose: Core AI pipeline orchestrators + detection stack
 
+> Current-state note: this module currently supports trigger-frame detection,
+> incident tracking, Gemini analysis, timeline construction, and alert routing.
+> Person Re-ID, cross-camera identity matching, crowd counting, line crossing,
+> and zone entry/exit are not supported production features. Event persistence is
+> performed once by the API through `HybridCRUD`.
+
 ---
 
 ## What This Module Does
@@ -10,7 +16,7 @@ Eight files and a subdirectory handling the core intelligence pipeline:
 
 ### Pipeline Orchestrators
 1. **pipeline.py** — `CameraPipeline` class, per-camera orchestrator (V1 fallback)
-2. **pipeline_v2.py** — `PipelineV2` class, upgraded pipeline with YOLO gate + BoT-SORT (production)
+2. **pipeline_v2.py** — `PipelineV2` class, upgraded pipeline with YOLO gate and incident builder
 3. **pipeline_manager.py** — `PipelineManager` factory, manages per-camera pipeline instances
 4. **incident_tracker.py** — `IncidentTracker`, IDLE/TRACKING/CLOSE state machine
 
@@ -21,7 +27,7 @@ Eight files and a subdirectory handling the core intelligence pipeline:
 
 ### Detection Subdirectory (backend/core/detection/)
 8. **detection/yolo_detector.py** — YOLOv8 nano ONNX detection gate
-9. **detection/botsort_tracker.py** — BoT-SORT multi-object tracker with Redis state
+9. **detection/botsort_tracker.py** — legacy/transition tracker module; not a supported identity guarantee
 10. **detection/incident_builder.py** — Gemini call gating logic based on track state
 
 ---
@@ -37,21 +43,16 @@ JPEG frame
       Returns DetectionResult with bboxes, annotated JPEG, object_summary.
       ~200ms inference on CPU (i5-8350U).
 
-  → Stage 2: BoT-SORT tracker (detection/botsort_tracker.py)
-      Assigns persistent Track IDs per camera using IoU matching (min 0.25).
-      State stored in Upstash Redis: key="track:{camera_id}", TTL=300s.
-      Returns TrackingResult with tracks, new_tracks, lost_tracks, track_summary.
-
-  → Stage 3: Incident builder (detection/incident_builder.py)
+  → Stage 2: Incident builder (detection/incident_builder.py)
       Decides if Gemini call is warranted:
       - New track appeared → CALL
       - No Gemini call in 120s → CALL (periodic update)
       - Track count changed ±2 → CALL
       - Otherwise → SKIP (return PipelineResult with change_detected=False)
 
-  → Stage 4: CameraPipeline.process_trigger() (V1 fallback)
+  → Stage 3: CameraPipeline.process_trigger()
       If YOLO unavailable → passes through directly.
-      Runs: frame quality gate → Gemini vision → Re-ID → cross-camera → alerts
+      Runs: frame quality gate → Gemini vision → incident timeline → alerts
 ```
 
 ### Pipeline V2 Class (pipeline_v2.py)
@@ -81,8 +82,8 @@ class PipelineV2:
 ```
 Trigger → IncidentTracker.process()
   → If GEMMA_CALL: Gemini vision analysis (analyse_frame_structured)
-  → If persons found: Re-ID engine → cross-camera correlation
-  → If CLOSE_INCIDENT: Gemini incident decision → alert routing → DB save
+  → If CLOSE_INCIDENT: Gemini incident decision → alert routing
+  → API route updates the existing event through HybridCRUD, including timeline_json
 ```
 
 ### File: pipeline_manager.py
@@ -157,17 +158,16 @@ async def correlate_across_cameras(person_id, source_camera_id,
 | D026 | All calls async, use asyncio.gather() for parallel AI calls |
 | YOLO gate | Reduces Gemini calls by ~40% via ONNX Runtime |
 | NO_CHANGE | Short-circuit reduces additional ~30% |
-| Redis state | Track state in Upstash Redis (not in-memory) for Cloud Run stateless containers |
-| IoU matching | Bbox overlap for track continuity (min IoU 0.25) |
+| Event persistence | API-owned HybridCRUD update; one write path per trigger event |
 | Gemini throttle | Max 1 call per 120s per camera (incident builder) + 1 per 8s global |
 
 ---
 
 ## Dependencies
-- Upstash Redis (required for BoT-SORT tracker state)
+- Upstash Redis (optional runtime/session state)
 - ONNX Runtime (required for YOLO gate)
 - Vertex AI / google-cloud-aiplatform (Gemini)
-- pgvector (Re-ID similarity search)
+- PostgreSQL JSON/relational event storage
 - opencv-python (frame quality checks, MOG2)
 
 ## Called By

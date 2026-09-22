@@ -77,7 +77,7 @@ class Event(Base):
     is_business_hours: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     gemma_raw_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     gemini_decision: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    timeline_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    timeline_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

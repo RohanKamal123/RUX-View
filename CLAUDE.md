@@ -103,9 +103,7 @@ connect agent --HTTPS trigger--> backend/api/triggers.py
                     PipelineV2 (backend/core/pipeline_v2.py) — production path
                     Stage 1: YOLO nano ONNX gate (backend/core/detection/yolo_detector.py)
                              filters frames with no person/vehicle/animal (~40% reduction)
-                    Stage 2: BoT-SORT tracker (detection/botsort_tracker.py)
-                             persistent track IDs per camera, state in Upstash Redis
-                    Stage 3: Incident builder (detection/incident_builder.py)
+                    Stage 2: Incident builder (detection/incident_builder.py)
                              decides whether a Gemini call is warranted this frame
                                        |
                                        v (if warranted)
@@ -113,12 +111,12 @@ connect agent --HTTPS trigger--> backend/api/triggers.py
                           1. IncidentTracker state machine: IDLE -> TRACKING -> CLOSE
                           2. Frame quality gate (brightness / blur / motion %, fail-open)
                           3. Gemini vision (backend/ai/ai_client.py, Vertex AI SDK)
-                          4. Re-ID (backend/ai/reid_engine.py, pgvector cosine similarity)
-                          5. Cross-camera correlation (backend/core/cross_camera.py)
-                          6. Repeat-sighting escalation (backend/core/repeat_sighting.py)
-                          7. Ghost detection (backend/core/ghost_detector.py)
-                          8. On CLOSE_INCIDENT: Gemini incident decision -> alert routing
-                             (backend/alerts/alert_router.py) -> persist event (backend/storage)
+                          4. Incident timeline and Gemini decision
+                          5. Alert routing (backend/alerts/alert_router.py)
+
+Event persistence is performed once by `backend/api/triggers.py` through
+`HybridCRUD`; the pipeline returns the result and timeline rather than inserting
+a second event.
 ```
 
 If YOLO/Redis are unavailable, PipelineV2 falls through directly to `CameraPipeline`
@@ -199,11 +197,10 @@ Vertex AI). `analyse_frame_structured()` validates output against a controlled
 vocabulary (event_type, threat_level, confidence) and discards results with
 confidence < 0.6.
 
-`reid_engine.py` does person re-identification via pgvector cosine similarity against
-the `persons.embedding` column (>0.85 = confident match, 0.5–0.72 = ask Gemini as a
-tiebreaker, <0.5 = mint a new `person_uid`). Note: BoxMOT/FastReID is commented out of
-`requirements.txt` (numpy conflict) — embeddings currently come only from Gemini
-appearance descriptions, not a dedicated embedding model.
+Person Re-ID, cross-camera identity matching, crowd counting, line crossing, and
+zone-entry/exit logic are not documented as current production features. The
+BoxMOT/Re-ID design files are historical and are not part of the supported request
+path.
 
 ### Alerting (`backend/alerts/`)
 
@@ -217,8 +214,9 @@ would otherwise interpret as formatting).
 ### Storage (`backend/storage/`)
 
 Async SQLAlchemy 2.0 against Postgres (Neon in prod) with the `pgvector` extension.
-Core tables: `events`, `persons` (has `embedding vector(512)`), `person_sightings`,
-plus `scene_states`, `audio_events`, `shop_analytics`, `cameras`, `locations`, `users`.
+Core tables: `events`, `cameras`, `locations`, and `users`, plus supporting audio,
+scene, and analytics tables where enabled. The event timeline is stored in
+`events.timeline_json`.
 All DB access is `async`/`await` — there is no sync session path. Retention is
 tier-based (free 7 days, household 30, business 90; audio transcripts 1–3 days
 regardless of tier) via `backend/storage/cleanup.py`.

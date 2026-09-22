@@ -4,8 +4,8 @@ AI-powered CCTV intelligence for the Bangladesh market. Analyzes camera streams 
 
 ## What it does
 
-- **Plug in any IP camera and get instant AI alerts.** VisionOS connects to existing cameras over RTSP or P2P relay, detects people and vehicles, and sends Telegram notifications when something important happens.
-- **Ask your security system questions in plain language.** "Who wore a red shirt today?" "Are all gates closed?" VisionOS remembers events and lets you search through natural language.
+- **Plug in an IP camera and receive AI alerts.** VisionOS connects to existing cameras over RTSP or P2P relay, analyzes trigger frames, and sends Telegram notifications when configured alert conditions are met.
+- **Search recorded events.** The backend exposes natural-language event-query support; person identity matching, crowd counting, line crossing, and zone-entry logic are not current features.
 - **Automatic on-premise detection gate.** A YOLO nano model runs on the Windows agent to filter irrelevant frames before cloud AI is called, keeping costs low.
 
 ## Tech stack
@@ -14,10 +14,10 @@ AI-powered CCTV intelligence for the Bangladesh market. Analyzes camera streams 
 |-------|-----------|---------|-------|
 | AI Vision | Vertex AI Gemini 2.x Flash | Frame analysis, threat detection | google-cloud-aiplatform SDK |
 | Detection gate | YOLOv8 nano (ONNX Runtime) | Filters irrelevant frames before Gemini | On-device, ~200ms per frame |
-| Object tracking | BoT-SORT + Upstash Redis | Persistent track IDs per camera | IoU-based matching |
+| Detection | YOLO ONNX gate + Gemini vision | Filters and analyzes trigger frames | No documented identity/tracking guarantee |
 | Backend | FastAPI + Python 3.11 | REST API, WebSocket, pipeline orchestration | Async, Cloud Run |
-| Database | Neon PostgreSQL + pgvector | Events, users, cameras, Re-ID vectors | Serverless Postgres |
-| Cache | Upstash Redis | Tracker state, session deduplication | HTTP-based, no VPC |
+| Database | Neon PostgreSQL + pgvector | Events, users, cameras, metadata | Serverless Postgres |
+| Cache | Upstash Redis | Optional runtime/session state | HTTP-based, no VPC |
 | Dashboard | Jinja2 + vanilla JS | Server-rendered web UI | Tabler icons |
 | Alerts | Telegram Bot API | Push notifications | Text, photo, voice note |
 | Hosting | Google Cloud Run | Serverless container | Auto-scaling, asia-south1 |
@@ -30,15 +30,13 @@ AI-powered CCTV intelligence for the Bangladesh market. Analyzes camera streams 
        │
   Connect Client (.exe)
   ├── YOLO nano gate (ONNX, on-device)
-  ├── BoT-SORT tracker (Redis state)
   └── Trigger sender (HTTP → Cloud Run)
        │
   Cloud Run Backend
   ├── Session dedup (45s merge window)
-  ├── Pipeline V2 orchestrator
+  ├── Pipeline orchestrator
   │   ├── YOLO gate (cloud-side verify)
-  │   ├── Gemini 2.x vision analysis
-  │   ├── Re-ID engine (pgvector cosine)
+  │   ├── Gemini vision analysis and incident timeline
   │   └── Alert router (Telegram)
   └── PostgreSQL (Neon) + Upstash Redis
        │

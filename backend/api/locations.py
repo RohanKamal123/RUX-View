@@ -9,6 +9,7 @@ from datetime import date
 import logging
 
 from backend.core.location_manager import LocationManager
+from backend.dashboard.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +23,6 @@ async def get_location_manager() -> LocationManager:
     return LocationManager(get_db_session_factory())
 
 
-async def get_current_user():
-    """Dependency: Get current authenticated user.
-
-    In production, this validates Firebase Auth token and returns user dict.
-    """
-    # Placeholder - actual implementation in backend/dashboard/auth.py
-    return {"id": "user-001", "tier": "free", "email": "user@example.com"}
-
-
 @router.get("/")
 async def list_locations(
     user: dict = Depends(get_current_user),
@@ -42,7 +34,7 @@ async def list_locations(
         List of LocationSummary with camera counts and event stats
     """
     try:
-        locations = await location_manager.get_locations(user["id"])
+        locations = await location_manager.get_locations(user["uid"])
         return {"locations": [loc.__dict__ for loc in locations]}
     except Exception as e:
         logger.error(f"Failed to list locations: {e}")
@@ -64,7 +56,7 @@ async def get_location(
         LocationDetail with cameras list
     """
     try:
-        location = await location_manager.get_location(location_id, user["id"])
+        location = await location_manager.get_location(location_id, user["uid"])
         return location.__dict__
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -97,7 +89,7 @@ async def create_location(
 
     try:
         location = await location_manager.create_location(
-            user_id=user["id"],
+            user_id=user["uid"],
             name=name.strip(),
             address=data.get("address"),
             timezone=data.get("timezone", "Asia/Dhaka"),
@@ -129,7 +121,7 @@ async def update_location(
     try:
         location = await location_manager.update_location(
             location_id=location_id,
-            user_id=user["id"],
+            user_id=user["uid"],
             updates=data,
         )
         return location.__dict__
@@ -157,7 +149,7 @@ async def delete_location(
         {"deleted": true}
     """
     try:
-        deleted = await location_manager.delete_location(location_id, user["id"])
+        deleted = await location_manager.delete_location(location_id, user["uid"])
         return {"deleted": deleted}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -191,8 +183,11 @@ async def get_location_stats(
         )
 
     try:
+        await location_manager.get_location(location_id, user["uid"])
         stats = await location_manager.get_location_stats(location_id, stats_date)
         return stats
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to get stats for location {location_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch location stats")
@@ -216,6 +211,11 @@ async def update_topology(
     Returns:
         {"updated": true}
     """
+    try:
+        await location_manager.get_location(location_id, user["uid"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
     try:
         await location_manager.update_camera_topology(location_id, topology)
         return {"updated": True}

@@ -69,7 +69,7 @@ class PostgresCRUD:
         is_business_hours: Optional[bool] = None,
         gemma_raw_json: Optional[dict] = None,
         gemini_decision: Optional[dict] = None,
-        timeline_json: Optional[dict] = None,
+        timeline_json: Optional[Any] = None,
         thumbnail_url: Optional[str] = None,
     ) -> Event:
         """Create a new security event."""
@@ -122,7 +122,7 @@ class PostgresCRUD:
         alert_sent: Optional[bool] = None,
         alert_type: Optional[str] = None,
         gemini_decision: Optional[dict] = None,
-        timeline_json: Optional[dict] = None,
+        timeline_json: Optional[Any] = None,
         thumbnail_url: Optional[str] = None,
         timestamp_end: Optional[datetime] = None,
         duration_sec: Optional[float] = None,

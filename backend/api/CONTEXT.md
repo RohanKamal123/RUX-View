@@ -1,13 +1,15 @@
 # CONTEXT.md — API Module
 # Module: backend/api/
-# Sprint: 1.5 (stubs), 3.6 (real logic)
+# Current state: trigger/camera/user routes are active; analytics, clips, and public signup contain explicit stubs
 # Purpose: REST API endpoints
 
 ---
 
 ## What This Module Does
 
-Six files handling all HTTP endpoints:
+The API package contains the active trigger, dashboard, query, camera, user,
+billing, location, authentication, analytics, and clip routes. Analytics,
+clip storage/playback, and public signup/reset are not production-backed.
 
 1. **triggers.py** — Receive triggers from Vision OS Connect client
 2. **dashboard.py** — Dashboard routes (event feed, stats)
@@ -15,6 +17,8 @@ Six files handling all HTTP endpoints:
 4. **cameras.py** — Camera CRUD management
 5. **users.py** — User management + profile
 6. **billing.py** — bKash payment endpoints
+7. **locations.py** — Location CRUD
+8. **analytics.py / clips.py / public_signup.py** — explicitly incomplete endpoints
 
 ---
 
@@ -62,6 +66,8 @@ POST /billing/webhook       → bKash payment webhook
 ## Auth
 - All routes protected with `get_current_user()` dependency
 - Premium routes use `require_tier("household")` or `require_tier("business")`
+- Public signup/reset is not a Firebase-backed account lifecycle.
+- Event writes are created and updated through `HybridCRUD`; the pipeline does not insert a second event.
 
 ## Key Decisions
 - **D005** — Trigger-only (not continuous streaming)

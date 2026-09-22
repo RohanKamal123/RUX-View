@@ -65,9 +65,9 @@ RUX View/
 | `backend/` | FastAPI server — handles triggers, AI analysis, alerts, dashboard, database |
 | `backend/ai/` | Gemini 2.0 Flash vision analysis + Groq Whisper audio transcription |
 | `backend/alerts/` | Routes alerts via Telegram, SMS (SSL Wireless), and voice notes (Kokoro TTS) |
-| `backend/analytics/` | Aggregates hourly shop analytics (customer count, demographics) |
+| `backend/analytics/` | Analytics modules; several higher-level aggregations remain unavailable or incomplete |
 | `backend/api/` | REST endpoints: frame/audio triggers, camera CRUD, user mgmt, payments, NL queries |
-| `backend/core/` | Pipeline orchestrator — incident tracking → vision → Re-ID → cross-camera → alert |
+| `backend/core/` | Pipeline orchestrator — incident tracking → vision → timeline → alert |
 | `backend/dashboard/` | Jinja2 web dashboard with Firebase auth, session cookies, tier gating |
 | `backend/storage/` | PostgreSQL ORM models (SQLAlchemy), async engine, CRUD operations |
 | `backend/tests/` | Pytest suite: unit (auth, API, AI, DB), integration, e2e |
@@ -199,7 +199,7 @@ python scripts/seed_database.py
 - **Trigger-only architecture**: Client sends triggers (motion/audio) → backend processes asynchronously
 - **Gemini 2.0 Flash**: Primary vision AI (not Vertex AI)
 - **Groq Whisper**: Audio transcription (replaced OpenAI Whisper)
-- **PostgreSQL + pgvector**: Structured data + vector similarity search for Re-ID
+- **PostgreSQL + pgvector**: Structured event, account, camera, and metadata storage
 - **Firebase Auth**: Authentication with session cookie fallback for browser
 - **Tier gating**: `free` → `guard` → `guard_pro` subscription tiers
 - **Per-camera pipeline**: One `CameraPipeline` instance per camera, lazy-created

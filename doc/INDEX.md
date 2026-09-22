@@ -1,7 +1,7 @@
 # Documentation Index
 
 ## Start Here
-- ARCHITECTURE.md — Full system design, AI pipeline, database schema, cost model
+- ARCHITECTURE.md — Historical system design reference; verify current behavior against code and README
 - ../README.md — Quickstart, tech stack, local setup
 
 ## Operations

@@ -1,7 +1,8 @@
 """
 analytics.py — Analytics API Endpoints for Vision OS.
 
-Provides REST API endpoints for analytics data from PostgreSQL.
+Provides an explicitly incomplete analytics API surface. The current endpoints
+return placeholder values and do not query production aggregation tables.
 MEGA.nz analytics has been removed entirely.
 
 Endpoints:

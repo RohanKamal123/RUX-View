@@ -51,11 +51,11 @@ from firebase_admin import auth as firebase_auth
 ### Pages
 - index.html — Event feed, all cameras, filter by camera
 - camera.html — Per-camera event list
-- person.html — Person profile (sightings timeline)
+- person.html — Legacy person-profile template; identity matching is not a supported production feature
 - settings.html — Camera config, ignore zones editor
 - login.html — Firebase Auth flow
 - query.html — NL query interface (Household/Business only)
-- analytics.html — Shop analytics (Business only)
+- analytics.html — Analytics UI shell; backend analytics endpoints currently return placeholders
 
 ### Features
 - Cookie/JWT session after Firebase verify
