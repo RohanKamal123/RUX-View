@@ -5,6 +5,7 @@ See CURRENT_STATE.md for what is actually implemented vs. planned.
 ## Start Here
 - ARCHITECTURE.md — Historical system design reference; verify current behavior against code and README
 - ../README.md — Quickstart, tech stack, local setup
+- ../docs/RUX_VIEW_DATA_SCHEMA_AND_PROCEDURE.md — Complete data schema, storage inventory, and end-to-end operating procedure
 
 ## Operations
 - LAUNCH_RUNBOOK.md — Production launch checklist
